@@ -1,0 +1,8 @@
+
+# Build artifacts
+*.tar.gz
+*.skill
+
+# Python cache
+__pycache__/
+*.pyc
