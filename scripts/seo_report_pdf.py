@@ -908,18 +908,18 @@ def generate(data, output_path, title=None):
     og = site.get('og', {})
     sl = site.get('social_links', {})
     social_rows = [
-        ['og:title', og.get('title', '缺失')[:40], '✅' if og.get('title') else '❌'],
-        ['og:description', (og.get('description') or '缺失')[:40], '✅' if og.get('description') else '❌'],
-        ['og:image', '已设置' if og.get('image') else '缺失', '✅' if og.get('image') else '❌'],
-        ['og:type', og.get('type', '缺失'), '✅' if og.get('type') else '❌'],
+        ['og:title', og.get('title', '缺失')[:40], '是' if og.get('title') else '否'],
+        ['og:description', (og.get('description') or '缺失')[:40], '是' if og.get('description') else '否'],
+        ['og:image', '已设置' if og.get('image') else '缺失', '是' if og.get('image') else '否'],
+        ['og:type', og.get('type', '缺失'), '是' if og.get('type') else '否'],
     ]
     # Social media entry links
     platforms = sl.get('platforms', [])
     detected_names = sl.get('detected_platforms', [])
     if detected_names:
-        social_rows.append(['社交入口', ', '.join(detected_names), '✅'])
+        social_rows.append(['社交入口', ', '.join(detected_names), '是'])
     else:
-        social_rows.append(['社交入口', '未检测到', '❌'])
+        social_rows.append(['社交入口', '未检测到', '否'])
     el.append(make_table(
         ['标签', '内容', '状态'],
         social_rows, ss, cw=[0.25, 0.50, 0.25]))
@@ -1001,7 +1001,7 @@ def generate(data, output_path, title=None):
     
     el.append(make_table(
         ['Schema 类型', '是否检测到', '状态'],
-        [[s, '是' if has_schema(s) else '否', '✅' if has_schema(s) else '❌'] for s in required],
+        [[s, '是' if has_schema(s) else '否', '是' if has_schema(s) else '否'] for s in required],
         ss, cw=[0.40, 0.30, 0.30]))
     
     # Organization 备注
@@ -1107,17 +1107,17 @@ def generate(data, output_path, title=None):
         
         el.append(Spacer(1, 6*mm))
         el.append(Paragraph(
-            f'<font color="{PRIMARY}"><b>✅ {cat_label} 后端关键词体系已生成！</b></font>',
+            f'<font color="{PRIMARY}"><b>■ {cat_label} 后端关键词体系已生成！</b></font>',
             ss['H2Style']))
         el.append(HRFlowable(width='100%', thickness=0.8, color=colors.HexColor('#DEE2E6'), spaceAfter=4*mm))
         
         # --- Overview table ---
         sp_total = sum(len(v) for v in kw_sys.get('selling_points', {}).values())
         overview_rows = [
-            ['📚 词根', f'{len(kw_sys.get("roots", []))} 个', ', '.join(kw_sys.get('roots', []))],
-            ['🔑 关键词', f'{len(kw_sys.get("keywords", []))} 个', '从核心词到长尾词的完整覆盖'],
-            ['📁 TAG 词', f'{len(kw_sys.get("tags", []))} 个', ', '.join(kw_sys.get('tags', []))],
-            ['💎 卖点', f'{sp_total} 个', '按12种类型分类（防护/电压/LED类型/密度/亮度/色彩/色温/光学/结构/安装/封装/认证/包装/场景等）'],
+            ['■ 词根', f'{len(kw_sys.get("roots", []))} 个', ', '.join(kw_sys.get('roots', []))],
+            ['◆ 关键词', f'{len(kw_sys.get("keywords", []))} 个', '从核心词到长尾词的完整覆盖'],
+            ['▲ TAG 词', f'{len(kw_sys.get("tags", []))} 个', ', '.join(kw_sys.get('tags', []))],
+            ['● 卖点', f'{sp_total} 个', '按12种类型分类（防护/电压/LED类型/密度/亮度/色彩/色温/光学/结构/安装/封装/认证/包装/场景等）'],
         ]
         el.append(Paragraph('<b>关键词体系总览</b>', ss['Label']))
         el.append(make_table(
@@ -1129,14 +1129,14 @@ def generate(data, output_path, title=None):
         roots = kw_sys.get('roots', [])
         if roots:
             root_rows = [[r, '核心产品命名变体'] for r in roots]
-            el.append(Paragraph('<b>📚 词根 (Root Keywords)</b>', ss['H2Style']))
+            el.append(Paragraph('<b>■ 词根 (Root Keywords)</b>', ss['H2Style']))
             el.append(make_table(['词根', '说明'], root_rows, ss, cw=[0.55, 0.45]))
             el.append(Spacer(1, 3*mm))
         
         # --- 关键词 (Main Keywords) - 2 columns ---
         kws = kw_sys.get('keywords', [])
         if kws:
-            el.append(Paragraph('<b>🔑 关键词 (Keywords)</b>', ss['H2Style']))
+            el.append(Paragraph('<b>◆ 关键词 (Keywords)</b>', ss['H2Style']))
             half = (len(kws) + 1) // 2
             kw_rows = []
             for i in range(half):
@@ -1152,14 +1152,14 @@ def generate(data, output_path, title=None):
         tags = kw_sys.get('tags', [])
         if tags:
             tag_rows = [[t, '高价值属性组合，适合做产品变体页Title'] for t in tags]
-            el.append(Paragraph('<b>📁 TAG 词 (Tag Keywords)</b>', ss['H2Style']))
+            el.append(Paragraph('<b>▲ TAG 词 (Tag Keywords)</b>', ss['H2Style']))
             el.append(make_table(['TAG词', '用途说明'], tag_rows, ss, cw=[0.55, 0.45]))
             el.append(Spacer(1, 3*mm))
         
         # --- 卖点 (Selling Points) - by category ---
         selling_points = kw_sys.get('selling_points', {})
         if selling_points:
-            el.append(Paragraph('<b>💎 卖点 (Selling Points)</b>', ss['H2Style']))
+            el.append(Paragraph('<b>● 卖点 (Selling Points)</b>', ss['H2Style']))
             for sp_cat_name, sp_list in selling_points.items():
                 if sp_list:
                     sp_rows = []
@@ -1201,11 +1201,11 @@ def generate(data, output_path, title=None):
     el.append(make_table(
         ['检测项', '结果', '评估'],
         [
-            ['FAQPage 结构化数据', f'{paa.get("faq_schema_count",0)} 个问答', '✅' if paa.get('faq_schema_count',0) > 0 else '❌'],
-            ['<details>/<summary> 元素', f'{paa.get("details_count",0)} 个', '✅' if paa.get('details_count',0) > 0 else '❌'],
-            ['手风琴/折叠组件', f'{paa.get("accordion_count",0)} 个', '✅' if paa.get('accordion_count',0) > 0 else '❌'],
-            ['疑问式标题 (H2/H3)', f'{len(paa.get("question_headings",[]))} 个', '✅' if len(paa.get('question_headings',[])) > 0 else '❌'],
-            ['PAA 就绪', '是' if paa.get('paa_ready') else '否', '✅' if paa.get('paa_ready') else '❌'],
+            ['FAQPage 结构化数据', f'{paa.get("faq_schema_count",0)} 个问答', '是' if paa.get('faq_schema_count',0) > 0 else '否'],
+            ['<details>/<summary> 元素', f'{paa.get("details_count",0)} 个', '是' if paa.get('details_count',0) > 0 else '否'],
+            ['手风琴/折叠组件', f'{paa.get("accordion_count",0)} 个', '是' if paa.get('accordion_count',0) > 0 else '否'],
+            ['疑问式标题 (H2/H3)', f'{len(paa.get("question_headings",[]))} 个', '是' if len(paa.get('question_headings',[])) > 0 else '否'],
+            ['PAA 就绪', '是' if paa.get('paa_ready') else '否', '是' if paa.get('paa_ready') else '否'],
         ], ss, cw=[0.35, 0.30, 0.35]))
 
     detected_qs = paa.get('question_headings', [])
@@ -1259,11 +1259,11 @@ def generate(data, output_path, title=None):
     strengths = [(cn, scores.get(k)) for k, cn, w in DIMS if scores.get(k, 0) >= 8]
     weaknesses = [(cn, scores.get(k)) for k, cn, w in DIMS if scores.get(k, 0) <= 4]
 
-    el.append(Paragraph('<b>✅ 优势维度</b>', ss['H2Style']))
+    el.append(Paragraph('<b>■ 优势维度</b>', ss['H2Style']))
     for cn, sv in strengths:
         el.append(Paragraph(f'  {cn}：{sv}/10', ss['ListItem']))
     el.append(Spacer(1, 2*mm))
-    el.append(Paragraph('<b>❌ 待改进维度</b>', ss['H2Style']))
+    el.append(Paragraph('<b>▲ 待改进维度</b>', ss['H2Style']))
     for cn, sv in weaknesses:
         el.append(Paragraph(f'  {cn}：{sv}/10', ss['ListItem']))
     if not weaknesses:
