@@ -249,11 +249,15 @@ def generate_paa_examples(product):
 def calc_scores(site):
     """Calculate scores based on homepage + product pages data.
     v3.0: Enhanced scoring with finer granularity, structure checks, and GEO expansion.
+    Handles JS-rendered pages that couldn't be fetched properly.
     """
     s = {}
     sub_pages = site.get('sub_pages', [])
     product_pages = [sp for sp in sub_pages if sp.get('page_type') == 'product']
     n_prod = len(product_pages)
+    
+    # Check if page was JS-rendered and couldn't be fully fetched
+    js_fallback = site.get('fetch_method') == 'static_fallback'
     
     def product_avg_score(dimension_func, pages):
         if not pages:
@@ -635,6 +639,12 @@ def calc_scores(site):
     
     bs = cp * 0.30 + sp_val * 0.25 + ap * 0.20 + lp * 0.25 + density_bonus
     s['b2b'] = min(10, max(0, round(bs, 1)))
+    
+    # If the page was JS-rendered and couldn't be properly fetched,
+    # mark scores with a flag but don't zero them out
+    if js_fallback:
+        s['_js_fallback'] = True
+        s['_note'] = '页面为JavaScript渲染，静态爬取无法获取完整内容，评分可能偏低'
     
     return s
 

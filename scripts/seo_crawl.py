@@ -37,6 +37,73 @@ def fetch_header(url, timeout=10):
     except Exception as e:
         return {}, str(e)
 
+def is_empty_page(html):
+    """Detect if static fetch returned an empty/JS-only page."""
+    if not html or len(html) < 200:
+        return True
+    # Check for minimal meaningful content
+    title = re.findall(r'<title[^>]*>([^<]+)</title>', html, re.I | re.S)
+    title_text = title[0].strip() if title else ''
+    # If title is empty or just a placeholder, likely JS-rendered
+    if not title_text or title_text.lower() in ('', 'loading...', 'untitled'):
+        # Check for JS framework indicators
+        js_indicators = [
+            r'<div[^>]+id=["\']root["\']',        # React
+            r'<div[^>]+id=["\']app["\']',         # Vue/React
+            r'ng-app',                               # Angular
+            r'__NEXT_DATA__',                        # Next.js
+            r'__NUXT__',                             # Nuxt.js
+            r'window\.__INITIAL_STATE__',           # SSR hydration
+            r'<noscript>',                           # Common in SPA
+        ]
+        for pat in js_indicators:
+            if re.search(pat, html, re.I):
+                return True
+    return False
+
+def fetch_rendered(url, timeout=30):
+    """Fetch a page using browser rendering (via openclaw browser tool or playwright).
+    Falls back to static fetch if rendering is unavailable.
+    Returns (html, status) like fetch().
+    """
+    # Try using playwright if available
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, timeout=timeout * 1000, wait_until='networkidle')
+            html = page.content()
+            browser.close()
+            return html, 200
+    except ImportError:
+        pass
+    except Exception as e:
+        pass
+    
+    # Fallback: try subprocess playwright
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['python3', '-c', f'''
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    b = p.chromium.launch(headless=True)
+    pg = b.new_page()
+    pg.goto("{url}", timeout={timeout*1000}, wait_until="networkidle")
+    print(pg.content())
+    b.close()
+'''],
+            capture_output=True, text=True, timeout=timeout + 10
+        )
+        if result.returncode == 0 and result.stdout:
+            return result.stdout, 200
+    except Exception:
+        pass
+    
+    # Final fallback: return empty
+    return '', 'render_failed'
+
 def extract_text(h):
     """Extract visible text from HTML."""
     text = re.sub(r'<script[^>]*>.*?</script>', '', h, flags=re.I | re.S)
@@ -903,13 +970,26 @@ def parse_sitemap(url):
 # === Full Page Analysis ===
 def analyze_page(url):
     base = url.rstrip('/')
-    result = {'url': url, 'base_url': base, 'status': 'ok', 'error': None}
+    result = {'url': url, 'base_url': base, 'status': 'ok', 'error': None, 'fetch_method': 'static'}
 
     page_html, status = fetch(base)
     if not page_html:
         result['status'] = 'error'
         result['error'] = f'Failed to fetch homepage: {status}'
         return result
+
+    # Detect if page is JS-rendered (empty content from static fetch)
+    if is_empty_page(page_html):
+        print(f'[CRAWL]   Detected JS-rendered page, trying browser rendering...', file=sys.stderr)
+        rendered_html, render_status = fetch_rendered(base)
+        if rendered_html and isinstance(render_status, int) and render_status == 200:
+            page_html = rendered_html
+            result['fetch_method'] = 'rendered'
+            print(f'[CRAWL]   Browser rendering successful!', file=sys.stderr)
+        else:
+            print(f'[CRAWL]   Browser rendering failed, using static content', file=sys.stderr)
+            result['fetch_method'] = 'static_fallback'
+            result['js_rendering_needed'] = True
 
     result['http_status'] = status if isinstance(status, int) else 0
     result['raw_html'] = page_html  # Store for deep crawl
