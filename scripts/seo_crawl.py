@@ -941,37 +941,69 @@ def analyze_b2b_keywords(h):
     }
 
 
-def generate_backend_keyword_system(categories, product_titles=None, site_text=None):
-    """Generate a backend keyword system based on website categories and actual product content.
+def generate_backend_keyword_system(categories, product_pages=None):
+    """Generate a backend keyword system for the primary product category.
+    
+    Uses ONLY the first category for keyword system generation (industry knowledge
+    should come from that category's products, not all site products).
+    
+    Products are filtered to match the FIRST category via H2 heading matching.
+    If product doesn't contain first category signal in H2s, it's treated as
+    misaligned/different category and excluded from keyword generation.
     
     Produces 4 dimensions:
       - 词根 (Root keywords): 5 core product name variations
       - 关键词 (Main keywords): 20 keywords from core to long-tail
       - TAG词 (TAG keywords): 3 high-value attribute combinations
       - 卖点 (Selling points): up to 50 points across 12 categories
-    
-    Industry knowledge is derived from: (1) category names, (2) actual product title text,
-    (3) combined site text. Types are detected by scanning BOTH categories individually
-    AND the full product title corpus, then picking the most-confident match.
     """
     if not categories:
         categories = ['Product']
-    primary_cats = [c.strip() for c in categories[:2] if c.strip()]
-    if not primary_cats:
-        primary_cats = ['Product']
-
-    # ── Build comprehensive text corpus for type detection ───
-    # Scan each category separately + product titles + site_text for industry context
-    all_text_parts = []
-    for cat in primary_cats:
-        all_text_parts.append(cat.lower())
-    # Also scan each category individually for type scoring (avoid cross-contamination)
-    cat_type_scores = {}  # type -> sum of scores across categories
+    first_cat = categories[0].strip() if categories else 'Product'
     
-    # Product titles give real industry context even when categories are misaligned
-    prod_text = ' '.join(product_titles).lower() if product_titles else ''
-    site_text_combined = (site_text or '').lower()
-    corpus = f"{' '.join(all_text_parts)} {prod_text} {site_text_combined}"
+    # ── Filter products to first category only ─────────────────────────
+    # Products are matched via H2 headings (which carry category context)
+    # Products not matching first category are treated as misaligned/different category
+    first_cat_lower = first_cat.lower()
+    first_cat_words = first_cat_lower.split()
+    
+    def _get_h2_texts(pp):
+        """Extract H2 heading texts from a product page (handle both list-of-dict and list-of-str)."""
+        h2_list = pp.get('headings', {}).get('H2', [])
+        result = []
+        for h in h2_list:
+            if isinstance(h, dict):
+                result.append(h.get('text', ''))
+            elif isinstance(h, str):
+                result.append(h)
+        return result
+    
+    matched_products = []
+    if product_pages:
+        for pp in product_pages:
+            h2s = _get_h2_texts(pp)
+            h2_text = ' '.join(h2s).lower()
+            # Product matches first category if any first_cat word appears in H2s
+            match_count = sum(1 for w in first_cat_words if len(w) > 2 and w in h2_text)
+            if match_count >= 1:
+                matched_products.append(pp)
+    
+    # Extract texts from matched products only
+    prod_titles = [pp.get('title', {}).get('text', '') for pp in matched_products if pp.get('title', {}).get('text')]
+    prod_h2s = [h for pp in matched_products for h in pp.get('headings', {}).get('H2', [])]
+    prod_text = ' '.join(prod_titles).lower() if prod_titles else ''
+    prod_h2_text = ' '.join([
+        h.get('text', '') if isinstance(h, dict) else str(h)
+        for h in prod_h2s
+    ]).lower()
+    
+    # If no products matched, fall back to all products (don't break generation)
+    if not prod_titles and product_pages:
+        prod_titles = [pp.get('title', {}).get('text', '') for pp in product_pages if pp.get('title', {}).get('text')]
+        prod_text = ' '.join(prod_titles).lower()
+    
+    primary_cats = [first_cat]
+    all_cat_text = first_cat.lower()
     
     # ── Product type detection (scoring) ──────────────────────
     PTYPES = {
@@ -1901,11 +1933,10 @@ def main():
                     b2b_summary[key]['score'] = round(b2b_summary[key]['score'] / len(product_pages), 1)
                 site_data['category_b2b_summary'] = b2b_summary
                 
-                # Generate backend keyword system based on top 2 categories
-                top_2_cats = b2b_summary.get('top_categories', [])[:2]
-                prod_titles = [pp.get('title', {}).get('text', '') for pp in product_pages if pp.get('title', {}).get('text')]
-                site_text_raw = html_mod.unescape(site_data.get('raw_html', '') if 'raw_html' in site_data else '')
-                kw_system = generate_backend_keyword_system(top_2_cats, product_titles=prod_titles, site_text=site_text_raw)
+                # Generate backend keyword system for FIRST category only
+                # Products are filtered to match the first category via H2 heading matching
+                first_cat = (b2b_summary.get('top_categories') or [None])[0] or 'Product'
+                kw_system = generate_backend_keyword_system([first_cat], product_pages=product_pages)
                 site_data['backend_keyword_system'] = kw_system
                 print(f'[CRAWL]   Backend keyword system generated: {len(kw_system["roots"])} roots, {len(kw_system["keywords"])} keywords, {len(kw_system["tags"])} tags, {sum(len(v) for v in kw_system["selling_points"].values())} selling points', file=sys.stderr)
 
