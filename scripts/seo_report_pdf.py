@@ -315,9 +315,21 @@ def calc_scores(site):
         'about' in sp.get('url', '').lower() for sp in sub_pages
     ) if sub_pages else False
     
+    # 检测页面内容中的 FAQ/HowTo 区块
+    faq_blocks = site.get('faq_block_count', 0)
+    howto_blocks = site.get('howto_block_count', 0)
+    
     # 如果 Organization 不在 JSON-LD 但有 about-us 页面，加入 Organization
     if has_about_page and 'Organization' not in matched:
         matched.append('Organization')
+    
+    # 如果 FAQPage 不在 JSON-LD 但有 FAQ 内容区块，加入 FAQPage
+    if faq_blocks > 0 and 'FAQPage' not in matched:
+        matched.append('FAQPage')
+    
+    # 如果 HowTo 不在 JSON-LD 但有 HowTo 内容区块，加入 HowTo
+    if howto_blocks > 0 and 'HowTo' not in matched:
+        matched.append('HowTo')
     
     nc = len(matched)
     if nc >= 4: geo_struct_score = 9
@@ -611,7 +623,7 @@ def generate(data, output_path, title=None):
     el.append(Paragraph('十、GEO/AI 内容与结构', ss['H1Style']))
     el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
 
-    # Structure table - Organization 也考虑 about-us 页面
+    # Structure table - 检测 JSON-LD 和页面内容
     jld_types = site.get('jsonld', {}).get('types', [])
     required = ['FAQPage', 'HowTo', 'Organization', 'NewsArticle']
     
@@ -621,10 +633,18 @@ def generate(data, output_path, title=None):
         'about' in sp.get('url', '').lower() for sp in sub_pages
     ) if sub_pages else False
     
-    # Organization 判断：JSON-LD 或 about-us 页面
+    # 检测页面内容中的 FAQ/HowTo 区块
+    faq_blocks = site.get('faq_block_count', 0)
+    howto_blocks = site.get('howto_block_count', 0)
+    
+    # 判断逻辑：JSON-LD 或页面内容
     def has_schema(s):
         if s == 'Organization':
             return s in jld_types or has_about_page
+        if s == 'FAQPage':
+            return s in jld_types or faq_blocks > 0
+        if s == 'HowTo':
+            return s in jld_types or howto_blocks > 0
         return s in jld_types
     
     el.append(make_table(
@@ -639,10 +659,26 @@ def generate(data, output_path, title=None):
             'Organization：检测到 About Us 页面，视为有公司信息展示。'
             '建议进一步添加 Organization JSON-LD 结构化数据，以便 AI 搜索引擎准确理解公司信息。',
             ss['CalloutOK']))
+    
+    # FAQPage 备注
+    if faq_blocks > 0 and 'FAQPage' not in jld_types:
+        el.append(Spacer(1, 2*mm))
+        el.append(Paragraph(
+            f'FAQPage：检测到 {faq_blocks} 个 FAQ 内容区块，视为有问答式内容。'
+            '建议进一步添加 FAQPage JSON-LD 结构化数据，提升 AI 搜索引擎引用概率。',
+            ss['CalloutOK']))
+    
+    # HowTo 备注
+    if howto_blocks > 0 and 'HowTo' not in jld_types:
+        el.append(Spacer(1, 2*mm))
+        el.append(Paragraph(
+            f'HowTo：检测到 {howto_blocks} 个 HowTo 内容区块，视为有操作指南内容。'
+            '建议进一步添加 HowTo JSON-LD 结构化数据，提升 AI 搜索引擎引用概率。',
+            ss['CalloutOK']))
 
     # Content table
     wc = site.get('word_count', 0)
-    faq, howto = site.get('faq_block_count', 0), site.get('howto_block_count', 0)
+    faq, howto = faq_blocks, howto_blocks
     el.append(Spacer(1, 3*mm))
     el.append(make_table(
         ['指标', '数值', '评估'],
