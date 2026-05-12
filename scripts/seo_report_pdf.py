@@ -247,35 +247,73 @@ def generate_paa_examples(product):
 
 
 def calc_scores(site):
+    """Calculate scores based on homepage + product pages data."""
     s = {}
-    t = site.get('title', {})
-    tl, tt = t.get('length', 0), t.get('text', '')
-    if 60 <= tl <= 80 and ' ' in tt: s['title'] = 9
-    elif 50 <= tl <= 85 and ' ' in tt: s['title'] = 7
-    elif tl > 0: s['title'] = 5
-    else: s['title'] = 0
-
-    d = site.get('meta_description', {})
-    dl = d.get('length', 0)
-    if 120 <= dl <= 160: s['desc'] = 8
-    elif 100 <= dl <= 170: s['desc'] = 7
-    elif dl > 0: s['desc'] = 5
-    else: s['desc'] = 0
-
-    h1c, h2c = site.get('h1_count', 0), site.get('h2_count', 0)
-    if h1c == 1 and h2c >= 3: s['h12'] = 8
-    elif h1c == 1 and h2c > 0: s['h12'] = 7
-    elif h1c > 0: s['h12'] = 5
-    else: s['h12'] = 2
-
-    imgs = site.get('images', {})
-    s['alt'] = min(10, max(0, round(imgs.get('coverage_pct', 0) / 10)))
-
+    sub_pages = site.get('sub_pages', [])
+    product_pages = [sp for sp in sub_pages if sp.get('page_type') == 'product']
+    
+    # Helper function to calculate product page average score for a dimension
+    def product_avg_score(dimension_func, pages):
+        if not pages:
+            return 0
+        scores = [dimension_func(pp) for pp in pages]
+        return sum(scores) / len(scores) if scores else 0
+    
+    # === Title quality ===
+    # Homepage score
+    def title_score_page(page):
+        t = page.get('title', {})
+        tl = t.get('length', 0)
+        tt = t.get('text', '')
+        if 60 <= tl <= 80 and ' ' in tt: return 9
+        elif 50 <= tl <= 85 and ' ' in tt: return 7
+        elif tl > 0: return 5
+        else: return 0
+    
+    home_title = title_score_page(site)
+    prod_title_avg = product_avg_score(title_score_page, product_pages)
+    # Combined: homepage 30%, product pages 70% (product pages more important)
+    s['title'] = round(home_title * 0.3 + prod_title_avg * 0.7, 1) if product_pages else home_title
+    
+    # === Meta Description ===
+    def desc_score_page(page):
+        d = page.get('meta_description', {})
+        dl = d.get('length', 0)
+        if 120 <= dl <= 160: return 8
+        elif 100 <= dl <= 170: return 7
+        elif dl > 0: return 5
+        else: return 0
+    
+    home_desc = desc_score_page(site)
+    prod_desc_avg = product_avg_score(desc_score_page, product_pages)
+    s['desc'] = round(home_desc * 0.3 + prod_desc_avg * 0.7, 1) if product_pages else home_desc
+    
+    # === H1/H2 Structure ===
+    def h12_score_page(page):
+        h1c, h2c = page.get('h1_count', 0), page.get('h2_count', 0)
+        if h1c == 1 and h2c >= 3: return 8
+        elif h1c == 1 and h2c > 0: return 7
+        elif h1c > 0: return 5
+        else: return 2
+    
+    home_h12 = h12_score_page(site)
+    prod_h12_avg = product_avg_score(h12_score_page, product_pages)
+    s['h12'] = round(home_h12 * 0.3 + prod_h12_avg * 0.7, 1) if product_pages else home_h12
+    
+    # === Image Alt Coverage ===
+    def alt_score_page(page):
+        imgs = page.get('images', {})
+        return min(10, max(0, round(imgs.get('coverage_pct', 0) / 10)))
+    
+    home_alt = alt_score_page(site)
+    prod_alt_avg = product_avg_score(alt_score_page, product_pages)
+    s['alt'] = round(home_alt * 0.3 + prod_alt_avg * 0.7, 1) if product_pages else home_alt
+    
+    # === hreflang (site-level, keep as is) ===
     hl = site.get('hreflang', {})
     ml = site.get('multilang', [])
     html_lang = hl.get('html_lang', '')
     ml_count = len(ml)
-    # Score based on HTML lang + accessible language paths (not hreflang tag count)
     if html_lang and ml_count >= 5: s['hreflang'] = 9
     elif html_lang and ml_count >= 3: s['hreflang'] = 8
     elif html_lang and ml_count >= 1: s['hreflang'] = 6
@@ -283,77 +321,90 @@ def calc_scores(site):
     elif not html_lang and ml_count >= 3: s['hreflang'] = 4
     elif not html_lang and ml_count >= 1: s['hreflang'] = 2
     else: s['hreflang'] = 0
-
-    og = site.get('og', {})
-    s['og'] = min(10, round(sum(1 for k in ['title','description','image','type'] if og.get(k)) * 2.5))
-
+    
+    # === Open Graph ===
+    def og_score_page(page):
+        og = page.get('og', {})
+        return min(10, round(sum(1 for k in ['title','description','image','type'] if og.get(k)) * 2.5))
+    
+    home_og = og_score_page(site)
+    prod_og_avg = product_avg_score(og_score_page, product_pages)
+    s['og'] = round(home_og * 0.5 + prod_og_avg * 0.5, 1) if product_pages else home_og
+    
+    # === Sitemap (site-level, keep as is) ===
     sm = site.get('sitemap', {})
     if sm.get('exists') and sm.get('url_count', 0) > 0: s['sitemap'] = 8
     elif sm.get('exists'): s['sitemap'] = 5
     else: s['sitemap'] = 0
-
+    
+    # === Social sharing (site-level, keep as is) ===
     sl = site.get('social_links', {})
     has_social = sl.get('has_social', False)
     platforms = sl.get('detected_platforms', [])
     if has_social and len(platforms) >= 2: s['social'] = 9
     elif has_social: s['social'] = 7
     else: s['social'] = 0
-
-    sec = 8
-    if not site.get('https', True): sec -= 4
-    if site.get('generator'): sec -= 2
-    if site.get('noindex'): sec -= 3
-    s['security'] = max(0, min(10, sec))
-
+    
+    # === Technical Security ===
+    def security_score_page(page):
+        sec = 8
+        if not page.get('https', True): sec -= 4
+        if page.get('generator'): sec -= 2
+        if page.get('noindex'): sec -= 3
+        return max(0, min(10, sec))
+    
+    home_sec = security_score_page(site)
+    prod_sec_avg = product_avg_score(security_score_page, product_pages)
+    s['security'] = round(home_sec * 0.5 + prod_sec_avg * 0.5, 1) if product_pages else home_sec
+    
+    # === GEO/AI Structure ===
     GEO_TYPES = {'FAQPage', 'HowTo', 'Organization', 'NewsArticle'}
-    jld_types = site.get('jsonld', {}).get('types', [])
-    matched = [t for t in jld_types if t in GEO_TYPES]
     
-    # 检测 about-us 页面（视为有 Organization）
-    sub_pages = site.get('sub_pages', [])
-    has_about_page = any(
-        'about' in sp.get('url', '').lower() for sp in sub_pages
-    ) if sub_pages else False
+    def geo_struct_score_page(page):
+        jld_types = page.get('jsonld', {}).get('types', [])
+        matched = [t for t in jld_types if t in GEO_TYPES]
+        # Check about page for Organization
+        if 'about' in page.get('url', '').lower() and 'Organization' not in matched:
+            matched.append('Organization')
+        # Check FAQ/HowTo blocks
+        if page.get('faq_block_count', 0) > 0 and 'FAQPage' not in matched:
+            matched.append('FAQPage')
+        if page.get('howto_block_count', 0) > 0 and 'HowTo' not in matched:
+            matched.append('HowTo')
+        nc = len(matched)
+        if nc >= 4: return 9
+        elif nc >= 3: return 8
+        elif nc >= 2: return 6
+        elif nc >= 1: return 4
+        else: return 0
     
-    # 检测页面内容中的 FAQ/HowTo 区块
-    faq_blocks = site.get('faq_block_count', 0)
-    howto_blocks = site.get('howto_block_count', 0)
+    def geo_content_score_page(page):
+        wc = page.get('word_count', 0)
+        faq = page.get('faq_block_count', 0)
+        howto = page.get('howto_block_count', 0)
+        gc = (5 if wc > 2000 else 3 if wc > 1000 else 2 if wc > 500 else 1 if wc > 0 else 0) + min(5, faq*2 + howto*2)
+        return min(10, gc)
     
-    # 如果 Organization 不在 JSON-LD 但有 about-us 页面，加入 Organization
-    if has_about_page and 'Organization' not in matched:
-        matched.append('Organization')
+    def geo_score_page(page):
+        struct = geo_struct_score_page(page)
+        content = geo_content_score_page(page)
+        return round(struct * 0.5 + content * 0.5, 1)
     
-    # 如果 FAQPage 不在 JSON-LD 但有 FAQ 内容区块，加入 FAQPage
-    if faq_blocks > 0 and 'FAQPage' not in matched:
-        matched.append('FAQPage')
+    home_geo = geo_score_page(site)
+    prod_geo_avg = product_avg_score(geo_score_page, product_pages)
+    s['geo'] = round(home_geo * 0.3 + prod_geo_avg * 0.7, 1) if product_pages else home_geo
     
-    # 如果 HowTo 不在 JSON-LD 但有 HowTo 内容区块，加入 HowTo
-    if howto_blocks > 0 and 'HowTo' not in matched:
-        matched.append('HowTo')
-    
-    nc = len(matched)
-    if nc >= 4: geo_struct_score = 9
-    elif nc >= 3: geo_struct_score = 8
-    elif nc >= 2: geo_struct_score = 6
-    elif nc >= 1: geo_struct_score = 4
-    else: geo_struct_score = 0
-
-    wc = site.get('word_count', 0)
-    faq, howto = site.get('faq_block_count', 0), site.get('howto_block_count', 0)
-    gc = (5 if wc > 2000 else 3 if wc > 1000 else 2 if wc > 500 else 1 if wc > 0 else 0) + min(5, faq*2 + howto*2)
-    geo_content_score = min(10, gc)
-
-    # Combined GEO/AI score: weighted average (structure 50%, content 50%)
-    s['geo'] = round((geo_struct_score * 0.5 + geo_content_score * 0.5), 1)
-
-    b2b = site.get('b2b_keywords', {})
+    # === B2B Keywords (use category_b2b_summary if available) ===
+    b2b = site.get('category_b2b_summary', site.get('b2b_keywords', {}))
     cp = b2b.get('core_product', {}).get('score', 0)
     sp = b2b.get('specifications', {}).get('score', 0)
     ap = b2b.get('applications', {}).get('score', 0)
     lp = b2b.get('longtail_buyer', {}).get('score', 0)
-    ts = b2b.get('total_signals', 0)
-    bs = cp*0.30 + sp*0.25 + ap*0.20 + lp*0.25 + min(2, ts/max(1,wc)*500)
+    ts = b2b.get('core_product', {}).get('signal_count', 0) + b2b.get('specifications', {}).get('signal_count', 0) + b2b.get('applications', {}).get('signal_count', 0) + b2b.get('longtail_buyer', {}).get('signal_count', 0)
+    wc = site.get('word_count', 0)
+    bs = cp*0.30 + sp*0.25 + ap*0.20 + lp*0.25 + min(2, ts/max(1,wc)*500 if wc > 0 else 0)
     s['b2b'] = min(10, max(0, round(bs)))
+    
     return s
 
 

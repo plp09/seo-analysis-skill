@@ -820,6 +820,12 @@ def main():
                             'howto_block_count': count_howto_blocks(prod_html),
                             'canonical': extract_canonical(prod_html),
                             'b2b_keywords': analyze_b2b_keywords(prod_html),
+                            'og': extract_og(prod_html),
+                            'hreflang': extract_hreflang(prod_html),
+                            'https': prod_url.startswith('https://'),
+                            'generator': extract_generator(prod_html),
+                            'noindex': extract_noindex(prod_html),
+                            'social_links': {'has_social': False, 'detected_platforms': []},  # Will aggregate later
                             'page_type': 'product',
                         }
                         sub_pages_data.append(prod_data)
