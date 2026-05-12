@@ -622,6 +622,7 @@ def main():
                     'images': extract_images(sub_html),
                     'jsonld': extract_jsonld(sub_html),
                     'faq_block_count': count_faq_blocks(sub_html),
+                    'howto_block_count': count_howto_blocks(sub_html),
                     'canonical': extract_canonical(sub_html),
                     'b2b_keywords': analyze_b2b_keywords(sub_html),
                 }
