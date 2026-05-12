@@ -826,6 +826,40 @@ def main():
             else:
                 print(f'[CRAWL]   No product links found.', file=sys.stderr)
 
+            # Aggregate B2B keywords from product pages
+            product_pages = [sp for sp in sub_pages_data if sp.get('page_type') == 'product']
+            if product_pages:
+                print(f'[CRAWL]   Aggregating B2B keywords from {len(product_pages)} product pages...', file=sys.stderr)
+                b2b_summary = {
+                    'core_product': {'signal_count': 0, 'score': 0},
+                    'specifications': {'signal_count': 0, 'score': 0},
+                    'applications': {'signal_count': 0, 'score': 0},
+                    'longtail_buyer': {'signal_count': 0, 'score': 0},
+                    'buyer_bigrams': [],
+                    'heading_phrases': [],
+                    'top_categories': [],
+                    'product_pages_analyzed': len(product_pages),
+                }
+                for pp in product_pages:
+                    b2b = pp.get('b2b_keywords', {})
+                    # Aggregate signal counts and scores
+                    for key in ['core_product', 'specifications', 'applications', 'longtail_buyer']:
+                        if b2b.get(key):
+                            b2b_summary[key]['signal_count'] += b2b[key].get('signal_count', 0)
+                            b2b_summary[key]['score'] += b2b[key].get('score', 0)
+                    # Aggregate phrases
+                    b2b_summary['buyer_bigrams'].extend(b2b.get('buyer_bigrams', []))
+                    b2b_summary['heading_phrases'].extend(b2b.get('heading_phrases', []))
+                    b2b_summary['top_categories'].extend(b2b.get('top_categories', []))
+                # Deduplicate
+                b2b_summary['buyer_bigrams'] = list(dict.fromkeys(b2b_summary['buyer_bigrams']))[:50]
+                b2b_summary['heading_phrases'] = list(dict.fromkeys(b2b_summary['heading_phrases']))[:30]
+                b2b_summary['top_categories'] = list(dict.fromkeys(b2b_summary['top_categories']))[:10]
+                # Average scores
+                for key in ['core_product', 'specifications', 'applications', 'longtail_buyer']:
+                    b2b_summary[key]['score'] = round(b2b_summary[key]['score'] / len(product_pages), 1)
+                site_data['category_b2b_summary'] = b2b_summary
+
         # Remove raw_html from final output (too large)
         if 'raw_html' in site_data:
             del site_data['raw_html']

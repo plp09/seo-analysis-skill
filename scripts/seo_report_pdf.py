@@ -771,7 +771,13 @@ def generate(data, output_path, title=None):
     el.append(Paragraph('十二、B2B外贸买家关键词覆盖', ss['H1Style']))
     el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
 
-    b2b = site.get('b2b_keywords', {})
+    # Use category B2B summary (aggregated from product pages) if available
+    b2b = site.get('category_b2b_summary', site.get('b2b_keywords', {}))
+    b2b_page_count = b2b.get('product_pages_analyzed', 0)
+    if b2b_page_count > 0:
+        el.append(Paragraph(
+            f'<b>基于第一个分类下 {b2b_page_count} 个产品页的 B2B 关键词汇总分析</b>',
+            ss['Label']))
     core = b2b.get('core_product', {})
     spec = b2b.get('specifications', {})
     app = b2b.get('applications', {})
