@@ -737,8 +737,11 @@ def main():
             if sub_html and isinstance(sub_status, int) and sub_status == 200:
                 sub_data = {
                     'url': page_url,
-                    'title': extract_title(sub_html),
+                    'title': {'text': extract_title(sub_html), 'length': len(extract_title(sub_html))},
+                    'meta_description': {'text': extract_meta(sub_html, 'description')[0] if extract_meta(sub_html, 'description') else '', 'length': len(extract_meta(sub_html, 'description')[0]) if extract_meta(sub_html, 'description') else 0},
+                    'headings': extract_headings(sub_html),
                     'h1_count': len(extract_headings(sub_html).get('H1', [])),
+                    'h2_count': len(extract_headings(sub_html).get('H2', [])),
                     'word_count': word_count(sub_html),
                     'images': extract_images(sub_html),
                     'jsonld': extract_jsonld(sub_html),
@@ -764,8 +767,11 @@ def main():
                 if cat_html and isinstance(cat_status, int) and cat_status == 200:
                     cat_data = {
                         'url': cat_url,
-                        'title': extract_title(cat_html),
+                        'title': {'text': extract_title(cat_html), 'length': len(extract_title(cat_html))},
+                        'meta_description': {'text': extract_meta(cat_html, 'description')[0] if extract_meta(cat_html, 'description') else '', 'length': len(extract_meta(cat_html, 'description')[0]) if extract_meta(cat_html, 'description') else 0},
+                        'headings': extract_headings(cat_html),
                         'h1_count': len(extract_headings(cat_html).get('H1', [])),
+                        'h2_count': len(extract_headings(cat_html).get('H2', [])),
                         'word_count': word_count(cat_html),
                         'images': extract_images(cat_html),
                         'jsonld': extract_jsonld(cat_html),
@@ -802,8 +808,11 @@ def main():
                     if prod_html and isinstance(prod_status, int) and prod_status == 200:
                         prod_data = {
                             'url': prod_url,
-                            'title': extract_title(prod_html),
+                            'title': {'text': extract_title(prod_html), 'length': len(extract_title(prod_html))},
+                            'meta_description': {'text': extract_meta(prod_html, 'description')[0] if extract_meta(prod_html, 'description') else '', 'length': len(extract_meta(prod_html, 'description')[0]) if extract_meta(prod_html, 'description') else 0},
+                            'headings': extract_headings(prod_html),
                             'h1_count': len(extract_headings(prod_html).get('H1', [])),
+                            'h2_count': len(extract_headings(prod_html).get('H2', [])),
                             'word_count': word_count(prod_html),
                             'images': extract_images(prod_html),
                             'jsonld': extract_jsonld(prod_html),

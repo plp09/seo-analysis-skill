@@ -488,6 +488,31 @@ def generate(data, output_path, title=None):
             ['Canonical', canon[:50], '正常' if canon != '未设置' else '缺失'],
             ['HTML Lang', lang, '正常' if lang != '未设置' else '缺失'],
         ], ss, cw=[0.18, 0.58, 0.24]))
+    
+    # 产品页 Title/Description 统计
+    product_pages = [sp for sp in site.get('sub_pages', []) if sp.get('page_type') == 'product']
+    if product_pages:
+        # Title 统计
+        title_lengths = [sp.get('title', {}).get('length', 0) for sp in product_pages]
+        title_good = sum(1 for l in title_lengths if 60 <= l <= 80)
+        title_avg = sum(title_lengths) / len(title_lengths) if title_lengths else 0
+        
+        # Description 统计
+        desc_lengths = [sp.get('meta_description', {}).get('length', 0) for sp in product_pages]
+        desc_good = sum(1 for l in desc_lengths if 150 <= l <= 160)
+        desc_avg = sum(desc_lengths) / len(desc_lengths) if desc_lengths else 0
+        
+        el.append(Spacer(1, 3*mm))
+        el.append(Paragraph(f'<b>产品页元数据统计（{len(product_pages)} 页）</b>', ss['Body']))
+        el.append(make_table(
+            ['指标', '数值', '评估'],
+            [
+                ['产品页 Title 平均长度', f'{title_avg:.0f} 字符', '合格' if 60 <= title_avg <= 80 else '需优化'],
+                ['Title 合格率（60-80字符）', f'{title_good}/{len(product_pages)} ({title_good/len(product_pages)*100:.0f}%)', '优秀' if title_good/len(product_pages) >= 0.8 else '需改进'],
+                ['产品页 Description 平均长度', f'{desc_avg:.0f} 字符', '合格' if 150 <= desc_avg <= 160 else '需优化'],
+                ['Description 合格率（150-160字符）', f'{desc_good}/{len(product_pages)} ({desc_good/len(product_pages)*100:.0f}%)', '优秀' if desc_good/len(product_pages) >= 0.8 else '需改进'],
+            ], ss, cw=[0.40, 0.30, 0.30]))
+    
     tl = t.get('length', 0)
     if tl < 60:
         el.append(Spacer(1, 2*mm))
@@ -520,6 +545,25 @@ def generate(data, output_path, title=None):
         h2p = '、'.join(h2s[:10])
         if len(h2s) > 10: h2p += f'……（共{len(h2s)}个）'
         el.append(Paragraph(f'<b>H2 示例：</b>{h2p}', ss['Body']))
+    
+    # 产品页标题结构统计
+    product_pages = [sp for sp in site.get('sub_pages', []) if sp.get('page_type') == 'product']
+    if product_pages:
+        h1_counts = [sp.get('h1_count', 0) for sp in product_pages]
+        h2_counts = [sp.get('h2_count', 0) for sp in product_pages]
+        h1_good = sum(1 for c in h1_counts if c == 1)
+        h2_good = sum(1 for c in h2_counts if c >= 3)
+        
+        el.append(Spacer(1, 3*mm))
+        el.append(Paragraph(f'<b>产品页标题结构统计（{len(product_pages)} 页）</b>', ss['Body']))
+        el.append(make_table(
+            ['指标', '数值', '评估'],
+            [
+                ['产品页 H1 平均数量', f'{sum(h1_counts)/len(h1_counts):.1f}', '正常' if sum(h1_counts)/len(h1_counts) == 1 else '异常'],
+                ['H1 正常率（仅1个）', f'{h1_good}/{len(product_pages)} ({h1_good/len(product_pages)*100:.0f}%)', '优秀' if h1_good/len(product_pages) >= 0.9 else '需改进'],
+                ['产品页 H2 平均数量', f'{sum(h2_counts)/len(h2_counts):.1f}', '充足' if sum(h2_counts)/len(h2_counts) >= 3 else '偏少'],
+                ['H2 充足率（≥3个）', f'{h2_good}/{len(product_pages)} ({h2_good/len(product_pages)*100:.0f}%)', '优秀' if h2_good/len(product_pages) >= 0.8 else '需改进'],
+            ], ss, cw=[0.40, 0.30, 0.30]))
 
     # ─── 4. 图片优化 ─────────────────────────────────────────────
     el.append(Paragraph('四、图片优化分析', ss['H1Style']))
@@ -534,6 +578,22 @@ def generate(data, output_path, title=None):
             ['无 Alt 属性', str(imgs.get('without_alt', 0)), '需补充' if imgs.get('without_alt',0) > 0 else '完美'],
             ['Alt 覆盖率', f'{imgs.get("coverage_pct", 0):.1f}%', '优秀' if imgs.get('coverage_pct',0) >= 90 else '需改进'],
         ], ss, cw=[0.30, 0.30, 0.40]))
+    
+    # 产品页图片 Alt 统计
+    product_pages = [sp for sp in site.get('sub_pages', []) if sp.get('page_type') == 'product']
+    if product_pages:
+        alt_coverages = [sp.get('images', {}).get('coverage_pct', 0) for sp in product_pages]
+        alt_good = sum(1 for c in alt_coverages if c >= 90)
+        alt_avg = sum(alt_coverages) / len(alt_coverages) if alt_coverages else 0
+        
+        el.append(Spacer(1, 3*mm))
+        el.append(Paragraph(f'<b>产品页图片 Alt 统计（{len(product_pages)} 页）</b>', ss['Body']))
+        el.append(make_table(
+            ['指标', '数值', '评估'],
+            [
+                ['产品页 Alt 平均覆盖率', f'{alt_avg:.1f}%', '优秀' if alt_avg >= 90 else '需改进'],
+                ['Alt 优秀率（≥90%）', f'{alt_good}/{len(product_pages)} ({alt_good/len(product_pages)*100:.0f}%)', '优秀' if alt_good/len(product_pages) >= 0.8 else '需改进'],
+            ], ss, cw=[0.40, 0.30, 0.30]))
 
     # ─── 5. 多语言 ───────────────────────────────────────────────
     el.append(Paragraph('五、多语言与国际化', ss['H1Style']))
