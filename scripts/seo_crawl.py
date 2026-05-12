@@ -232,11 +232,288 @@ def count_howto_blocks(h):
     jsonld = extract_jsonld(h)
     return jsonld['types'].count('HowTo')
 
+# === Platform Detection & Smart URL Patterns ===
+PLATFORM_SIGNATURES = {
+    'wordpress': [
+        r'<meta[^>]+name="generator"[^>]+content="WordPress',
+        r'/wp-content/',
+        r'/wp-includes/',
+        r'<link[^>]+rel="https://api\.w\.org/"',
+    ],
+    'woocommerce': [
+        r'<body[^>]+class="[^"]*woocommerce[^"]*"',
+        r'<meta[^>]+name="generator"[^>]+content="WooCommerce',
+        r'/product-category/',
+        r'/product/',
+    ],
+    'shopify': [
+        r'cdn\.shopify\.com',
+        r'myshopify\.com',
+        r'Shopify\.theme',
+        r'window\.Shopify',
+    ],
+    'magento': [
+        r'<meta[^>]+name="generator"[^>]+content="Magento',
+        r'/catalog/product/view/',
+        r'/magento/',
+        r'Mage\.Cookies',
+    ],
+    'prestashop': [
+        r'<meta[^>]+name="generator"[^>]+content="PrestaShop',
+        r'/module/',
+        r'/en/[0-9]+-',
+    ],
+    'alibaba_cloud': [
+        r'aliyun\.com',
+        r'alibaba\.com',
+        r'/supplier-',
+        r'/sale-',
+    ],
+    'custom_b2b': [
+        r'/supplier-\d+-',
+        r'/sale-\d+-.*\.html',
+        r'/products?\.html',
+        r'/product/',
+    ],
+}
+
+# Product URL patterns by platform
+PRODUCT_URL_PATTERNS = {
+    'wordpress': [
+        r'/product/[^/]+/?$',           # /product/name/
+        r'/products/[^/]+/?$',          # /products/name/
+        r'/\?product=[^&]+',            # ?product=name
+    ],
+    'woocommerce': [
+        r'/product/[^/]+/?$',           # /product/name/
+        r'/shop/[^/]+/?$',              # /shop/name/
+    ],
+    'shopify': [
+        r'/products/[^/]+/?$',          # /products/name
+        r'/collections/[^/]+/products/[^/]+/?$',  # /collections/coll/products/name
+    ],
+    'magento': [
+        r'/[^/]+\.html$',               # /name.html (Magento default)
+        r'/catalog/product/view/id/\d+',  # /catalog/product/view/id/123
+        r'/[^/]+/[^/]+\.html$',         # /category/name.html
+    ],
+    'prestashop': [
+        r'/[a-z]{2}/[0-9]+-[^/]+\.html$',  # /en/123-name.html
+        r'/[^/]+/[0-9]+-[^/]+\.html$',    # /category/123-name.html
+    ],
+    'alibaba_cloud': [
+        r'/sale-\d+-[a-z0-9-]+\.html$',   # /sale-123-name.html
+        r'/product/\d+_[^/]+\.html$',     # /product/123_name.html
+    ],
+    'custom_b2b': [
+        r'/sale-\d+-[a-z0-9-]+\.html$',
+        r'/product/[^/]+/?$',
+        r'/item/[^/]+/?$',
+        r'/p/[^/]+/?$',
+        r'/detail/[^/]+/?$',
+        r'/products?/[^/]+/?$',
+        r'/[a-z0-9-]+-p\d+\.html$',     # /name-p123.html
+        r'/[a-z0-9-]+-\d+\.html$',      # /name-123.html
+    ],
+    'generic': [
+        r'/product/[^/]+/?$',
+        r'/products/[^/]+/?$',
+        r'/item/[^/]+/?$',
+        r'/p/[^/]+/?$',
+        r'/detail/[^/]+/?$',
+        r'/[a-z0-9-]+\.html$',          # Any .html page (lower priority)
+    ],
+}
+
+# Category URL patterns by platform
+CATEGORY_URL_PATTERNS = {
+    'wordpress': [
+        r'/product-category/[^/]+/?$',
+        r'/product-tag/[^/]+/?$',
+        r'/category/[^/]+/?$',
+    ],
+    'woocommerce': [
+        r'/product-category/[^/]+/?$',
+        r'/product-tag/[^/]+/?$',
+        r'/shop/?$',
+    ],
+    'shopify': [
+        r'/collections/[^/]+/?$',
+        r'/collections/?$',
+    ],
+    'magento': [
+        r'/[^/]+\.html$',               # Category pages often .html
+    ],
+    'prestashop': [
+        r'/[a-z]{2}/[0-9]+_[^/]+$',     # /en/123_category
+    ],
+    'alibaba_cloud': [
+        r'/supplier-\d+-[a-z0-9-]+/?$',  # /supplier-123-name/
+        r'/products?\.html$',            # /products.html
+    ],
+    'custom_b2b': [
+        r'/supplier-\d+-[a-z0-9-]+/?$',
+        r'/category/[^/]+/?$',
+        r'/categories/[^/]+/?$',
+        r'/collection/[^/]+/?$',
+        r'/catalog/[^/]+/?$',
+        r'/c/\d+/?$',
+        r'/products?\.html$',
+    ],
+    'generic': [
+        r'/category/[^/]+/?$',
+        r'/categories/[^/]+/?$',
+        r'/collection/[^/]+/?$',
+        r'/catalog/[^/]+/?$',
+        r'/products/?$',
+    ],
+}
+
+def detect_platform(html):
+    """Detect the platform/CMS used by the website."""
+    detected = []
+    for platform, patterns in PLATFORM_SIGNATURES.items():
+        for pattern in patterns:
+            if re.search(pattern, html, re.I):
+                detected.append(platform)
+                break
+    return detected[0] if detected else 'generic'
+
+def get_sitemap_urls(base_url, timeout=10):
+    """Get URLs from sitemap.xml as fallback for crawling."""
+    sitemap_urls = [
+        f"{base_url.rstrip('/')}/sitemap.xml",
+        f"{base_url.rstrip('/')}/sitemap_index.xml",
+        f"{base_url.rstrip('/')}/sitemap.php",
+    ]
+    
+    for sitemap_url in sitemap_urls:
+        xml_content, status = fetch(sitemap_url, timeout=timeout)
+        if xml_content and isinstance(status, int) and status == 200:
+            # Parse XML
+            urls = re.findall(r'<loc>([^<]+)</loc>', xml_content, re.I)
+            if urls:
+                return urls
+    return []
+
+def extract_product_links_smart(html, base_url, platform=None):
+    """Smart extraction of product links supporting multiple platforms."""
+    if platform is None:
+        platform = detect_platform(html)
+    
+    links = []
+    base = urlparse(base_url)
+    href_matches = re.findall(r'href=["\']([^"\'\s>]+)["\']', html, re.I)
+    
+    # Skip patterns
+    skip_patterns = ['/about', '/contact', '/blog', '/news', '/search', '/login', 
+                     '/register', '/cart', '/account', '/faq', '/help', '/service', 
+                     '/support', '/privacy', '/terms', '/sitemap', '/webim', '/video']
+    
+    # Get patterns for detected platform + generic
+    patterns = PRODUCT_URL_PATTERNS.get(platform, [])
+    if platform != 'generic':
+        patterns = patterns + PRODUCT_URL_PATTERNS.get('generic', [])
+    
+    for href in href_matches:
+        if href.startswith('#') or href.startswith('javascript') or href.startswith('mailto:'):
+            continue
+        if any(skip in href.lower() for skip in skip_patterns):
+            continue
+        
+        full_url = urljoin(base_url, href)
+        parsed = urlparse(full_url)
+        
+        if parsed.netloc != base.netloc:
+            continue
+        if full_url in links or full_url == base_url:
+            continue
+        
+        # Check against patterns
+        for pattern in patterns:
+            if re.search(pattern, href, re.I):
+                links.append(full_url)
+                break
+    
+    return links[:25]
+
+def extract_category_links_smart(html, base_url, platform=None):
+    """Smart extraction of category links supporting multiple platforms."""
+    if platform is None:
+        platform = detect_platform(html)
+    
+    links = []
+    base = urlparse(base_url)
+    
+    # Get patterns for detected platform + generic
+    patterns = CATEGORY_URL_PATTERNS.get(platform, [])
+    if platform != 'generic':
+        patterns = patterns + CATEGORY_URL_PATTERNS.get('generic', [])
+    
+    # First try navigation areas
+    nav_patterns = [
+        r'<nav[^>]*>(.*?)</nav>',
+        r'<header[^>]*>(.*?)</header>',
+        r'<div[^>]+class=["\'][^"\']*(?:menu|nav|navigation)[^"\']*["\'][^>]*>(.*?)</div>',
+    ]
+    
+    for pattern in nav_patterns:
+        nav_matches = re.findall(pattern, html, re.I | re.S)
+        for nav_content in nav_matches:
+            href_matches = re.findall(r'href=["\']([^"\'\s>]+)["\']', nav_content, re.I)
+            for href in href_matches:
+                if href.startswith('#') or href.startswith('javascript'):
+                    continue
+                
+                full_url = urljoin(base_url, href)
+                parsed = urlparse(full_url)
+                
+                if parsed.netloc != base.netloc:
+                    continue
+                if full_url in links or full_url == base_url:
+                    continue
+                
+                for pattern in patterns:
+                    if re.search(pattern, href, re.I):
+                        links.append(full_url)
+                        break
+    
+    # If no category links found, try entire page
+    if not links:
+        href_matches = re.findall(r'href=["\']([^"\'\s>]+)["\']', html, re.I)
+        for href in href_matches:
+            if href.startswith('#') or href.startswith('javascript'):
+                continue
+            
+            full_url = urljoin(base_url, href)
+            parsed = urlparse(full_url)
+            
+            if parsed.netloc != base.netloc:
+                continue
+            if full_url in links or full_url == base_url:
+                continue
+            
+            for pattern in patterns:
+                if re.search(pattern, href, re.I):
+                    links.append(full_url)
+                    break
+    
+    return links[:5]
+
 def extract_category_links(h, base_url):
     """Extract category/product listing links from navigation menu.
     Looks for links in nav, menu, or header areas.
     Returns list of full URLs.
     """
+    # First detect platform
+    platform = detect_platform(h)
+    
+    # Use smart extraction
+    smart_links = extract_category_links_smart(h, base_url, platform)
+    if smart_links:
+        return smart_links
+    
+    # Fallback to original logic
     links = []
     base = urlparse(base_url)
     base_path = base.path.rstrip('/') or '/'
@@ -294,18 +571,28 @@ def extract_category_links(h, base_url):
 
 def extract_product_links(h, base_url):
     """Extract product detail page links from a category/listing page.
+    Uses smart platform detection with fallback to generic patterns.
     Returns list of full URLs.
     """
+    # First detect platform and try smart extraction
+    platform = detect_platform(h)
+    smart_links = extract_product_links_smart(h, base_url, platform)
+    if smart_links:
+        return smart_links
+    
+    # Fallback to original logic with expanded patterns
     links = []
     base = urlparse(base_url)
     
-    # Product URL patterns (goldenluxled style: /sale-{id}-{name}.html)
+    # Expanded product URL patterns
     product_url_patterns = [
         r'/sale-\d+-[a-z0-9-]+\.html',     # /sale-45867611-product-name.html
-        r'/product/[^/]+$',                  # /product/something
-        r'/item/[^/]+$',                     # /item/something
-        r'/p/[^/]+$',                        # /p/something
-        r'/detail/[^/]+$',                   # /detail/something
+        r'/product/[^/]+/?$',                  # /product/something
+        r'/products/[^/]+/?$',                 # /products/something
+        r'/item/[^/]+/?$',                     # /item/something
+        r'/p/[^/]+/?$',                        # /p/something
+        r'/detail/[^/]+/?$',                   # /detail/something
+        r'/collections/[^/]+/products/[^/]+/?$',  # Shopify: /collections/coll/products/name
     ]
     
     # Find all links in the page
