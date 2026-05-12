@@ -680,27 +680,6 @@ def generate(data, output_path, title=None):
     wc = site.get('word_count', 0)
     faq, howto = faq_blocks, howto_blocks
     
-    # 计算产品页面占比（只计算 page_type='product'）
-    product_pages = [sp for sp in sub_pages if sp.get('page_type') == 'product']
-    total_product_pages = len(product_pages)
-    
-    product_pages_with_faq = sum(1 for sp in product_pages if sp.get('faq_block_count', 0) > 0)
-    product_pages_with_howto = sum(1 for sp in product_pages if sp.get('howto_block_count', 0) > 0)
-    
-    faq_pct = round(product_pages_with_faq / total_product_pages * 100, 1) if total_product_pages > 0 else 0
-    howto_pct = round(product_pages_with_howto / total_product_pages * 100, 1) if total_product_pages > 0 else 0
-    
-    # 评估状态
-    def pct_status(pct):
-        if pct >= 50:
-            return '✅ 优秀'
-        elif pct >= 20:
-            return '🟡 一般'
-        elif pct > 0:
-            return '🔴 不足'
-        else:
-            return '❌ 缺失'
-    
     el.append(Spacer(1, 3*mm))
     el.append(make_table(
         ['指标', '数值', '评估'],
@@ -708,8 +687,6 @@ def generate(data, output_path, title=None):
             ['首页词数', str(wc), '达标' if wc > 2000 else '不足'],
             ['FAQ 区块（首页）', str(faq), '良好' if faq > 0 else '缺失'],
             ['HowTo 区块（首页）', str(howto), '良好' if howto > 0 else '缺失'],
-            [f'FAQ 覆盖产品页占比（{total_product_pages} 页）', f'{faq_pct}%', pct_status(faq_pct)],
-            [f'HowTo 覆盖产品页占比（{total_product_pages} 页）', f'{howto_pct}%', pct_status(howto_pct)],
         ], ss, cw=[0.40, 0.30, 0.30]))
 
     # Recommendations - matched 考虑 about-us 页面
