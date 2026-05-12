@@ -241,6 +241,13 @@ def extract_category_links(h, base_url):
     base = urlparse(base_url)
     base_path = base.path.rstrip('/') or '/'
     
+    # Category URL patterns (goldenluxled style: /supplier-{id}-{name})
+    category_patterns = [
+        r'/supplier-\d+-[a-z0-9-]+',      # /supplier-4441813-led-high-bay-light
+        r'/category-[a-z0-9-]+',           # /category-xxx
+        r'/c/\d+',                         # /c/123
+    ]
+    
     # Find navigation areas
     nav_patterns = [
         r'<nav[^>]*>(.*?)</nav>',
@@ -269,8 +276,16 @@ def extract_category_links(h, base_url):
                 parsed = urlparse(full_url)
                 # Only keep links from same domain
                 if parsed.netloc == base.netloc and full_url != base_url and full_url not in links:
-                    # Prefer product/category related paths
-                    if any(kw in href.lower() for kw in ['product', 'category', 'collection', 'catalog', 'item', 'c/', 'p/']):
+                    # Check if matches category patterns (high priority)
+                    is_category = False
+                    for cat_pat in category_patterns:
+                        if re.search(cat_pat, href, re.I):
+                            is_category = True
+                            break
+                    
+                    if is_category:
+                        links.insert(0, full_url)  # Highest priority
+                    elif any(kw in href.lower() for kw in ['product', 'category', 'collection', 'catalog', 'item', 'c/', 'p/']):
                         links.insert(0, full_url)  # Prioritize
                     elif len(links) < 10:  # Limit non-prioritized links
                         links.append(full_url)
@@ -283,6 +298,15 @@ def extract_product_links(h, base_url):
     """
     links = []
     base = urlparse(base_url)
+    
+    # Product URL patterns (goldenluxled style: /sale-{id}-{name}.html)
+    product_url_patterns = [
+        r'/sale-\d+-[a-z0-9-]+\.html',     # /sale-45867611-product-name.html
+        r'/product/[^/]+$',                  # /product/something
+        r'/item/[^/]+$',                     # /item/something
+        r'/p/[^/]+$',                        # /p/something
+        r'/detail/[^/]+$',                   # /detail/something
+    ]
     
     # Find all links in the page
     href_matches = re.findall(r'href=["\']([^"\']*)["\']', h, re.I)
@@ -305,29 +329,22 @@ def extract_product_links(h, base_url):
         if full_url in links or full_url == base_url:
             continue
             
-        # Identify product page patterns - must be a detail page, not a listing
-        product_patterns = [
-            r'/product/[^/]+$',       # /product/something
-            r'/item/[^/]+$',          # /item/something
-            r'/p/[^/]+$',             # /p/something
-            r'/detail/[^/]+$',        # /detail/something
-            r'/[^/]+\.html$',         # ends with .html (common for product pages)
-        ]
-        
-        # Check if it matches product patterns
+        # Check if matches product URL patterns (high priority)
         is_product = False
-        for pattern in product_patterns:
-            if re.search(pattern, href, re.I):
+        for prod_pat in product_url_patterns:
+            if re.search(prod_pat, href, re.I):
                 is_product = True
                 break
         
-        # Additional check: has ID or specific structure in URL
+        # Additional check: ends with .html and has ID pattern
         if not is_product:
-            # Pattern like /product-name-123 or /123-product-name
-            if re.search(r'/[a-z0-9-]+-\d{2,}', href, re.I):
+            # Pattern like /product-name-123.html or /123-product-name.html
+            if re.search(r'/[a-z0-9-]+-\d{2,}\.html$', href, re.I):
                 is_product = True
-            # Pattern like /123-product-name.html
-            elif re.search(r'/\d{2,}-[a-z0-9-]+\.html', href, re.I):
+            elif re.search(r'/\d{2,}-[a-z0-9-]+\.html$', href, re.I):
+                is_product = True
+            # Generic .html pages (lower priority)
+            elif href.endswith('.html') and not any(x in href for x in ['about', 'contact', 'service']):
                 is_product = True
         
         if is_product:
@@ -763,26 +780,42 @@ def main():
                     # Extract product links from category page
                     print(f'[CRAWL]   Extracting product links from category...', file=sys.stderr)
                     product_links = extract_product_links(cat_html, cat_url)
-                    
-                    # Crawl first 3 product pages
-                    for prod_url in product_links[:3]:
-                        print(f'[CRAWL]   Product: {prod_url}', file=sys.stderr)
-                        prod_html, prod_status = fetch(prod_url)
-                        if prod_html and isinstance(prod_status, int) and prod_status == 200:
-                            prod_data = {
-                                'url': prod_url,
-                                'title': extract_title(prod_html),
-                                'h1_count': len(extract_headings(prod_html).get('H1', [])),
-                                'word_count': word_count(prod_html),
-                                'images': extract_images(prod_html),
-                                'jsonld': extract_jsonld(prod_html),
-                                'faq_block_count': count_faq_blocks(prod_html),
-                                'howto_block_count': count_howto_blocks(prod_html),
-                                'canonical': extract_canonical(prod_html),
-                                'b2b_keywords': analyze_b2b_keywords(prod_html),
-                                'page_type': 'product',
-                            }
-                            sub_pages_data.append(prod_data)
+                    product_source = cat_html
+                    product_base = cat_url
+                else:
+                    # Category page failed, try homepage
+                    product_links = extract_product_links(homepage_html, url)
+                    product_source = homepage_html
+                    product_base = url
+            else:
+                # No category links found, extract products directly from homepage
+                print(f'[CRAWL]   No category found, extracting product links from homepage...', file=sys.stderr)
+                product_links = extract_product_links(homepage_html, url)
+                product_source = homepage_html
+                product_base = url
+
+            # Crawl product pages
+            if product_links:
+                for prod_url in product_links[:3]:
+                    print(f'[CRAWL]   Product: {prod_url}', file=sys.stderr)
+                    prod_html, prod_status = fetch(prod_url)
+                    if prod_html and isinstance(prod_status, int) and prod_status == 200:
+                        prod_data = {
+                            'url': prod_url,
+                            'title': extract_title(prod_html),
+                            'h1_count': len(extract_headings(prod_html).get('H1', [])),
+                            'word_count': word_count(prod_html),
+                            'images': extract_images(prod_html),
+                            'jsonld': extract_jsonld(prod_html),
+                            'faq_block_count': count_faq_blocks(prod_html),
+                            'howto_block_count': count_howto_blocks(prod_html),
+                            'canonical': extract_canonical(prod_html),
+                            'b2b_keywords': analyze_b2b_keywords(prod_html),
+                            'page_type': 'product',
+                        }
+                        sub_pages_data.append(prod_data)
+            else:
+                print(f'[CRAWL]   No product links found.', file=sys.stderr)
 
         # Remove raw_html from final output (too large)
         if 'raw_html' in site_data:
