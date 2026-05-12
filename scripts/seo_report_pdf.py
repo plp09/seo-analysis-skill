@@ -680,19 +680,15 @@ def generate(data, output_path, title=None):
     wc = site.get('word_count', 0)
     faq, howto = faq_blocks, howto_blocks
     
-    # 计算页面占比（首页 + sub_pages）
-    total_pages = 1 + len(sub_pages)  # 首页 + 子页面
-    pages_with_faq = 1 if faq > 0 else 0  # 首页
-    pages_with_howto = 1 if howto > 0 else 0  # 首页
+    # 计算产品页面占比（只计算 page_type='product'）
+    product_pages = [sp for sp in sub_pages if sp.get('page_type') == 'product']
+    total_product_pages = len(product_pages)
     
-    for sp in sub_pages:
-        if sp.get('faq_block_count', 0) > 0:
-            pages_with_faq += 1
-        if sp.get('howto_block_count', 0) > 0:
-            pages_with_howto += 1
+    product_pages_with_faq = sum(1 for sp in product_pages if sp.get('faq_block_count', 0) > 0)
+    product_pages_with_howto = sum(1 for sp in product_pages if sp.get('howto_block_count', 0) > 0)
     
-    faq_pct = round(pages_with_faq / total_pages * 100, 1) if total_pages > 0 else 0
-    howto_pct = round(pages_with_howto / total_pages * 100, 1) if total_pages > 0 else 0
+    faq_pct = round(product_pages_with_faq / total_product_pages * 100, 1) if total_product_pages > 0 else 0
+    howto_pct = round(product_pages_with_howto / total_product_pages * 100, 1) if total_product_pages > 0 else 0
     
     # 评估状态
     def pct_status(pct):
@@ -712,8 +708,8 @@ def generate(data, output_path, title=None):
             ['首页词数', str(wc), '达标' if wc > 2000 else '不足'],
             ['FAQ 区块（首页）', str(faq), '良好' if faq > 0 else '缺失'],
             ['HowTo 区块（首页）', str(howto), '良好' if howto > 0 else '缺失'],
-            [f'FAQ 覆盖页面占比（{total_pages} 页）', f'{faq_pct}%', pct_status(faq_pct)],
-            [f'HowTo 覆盖页面占比（{total_pages} 页）', f'{howto_pct}%', pct_status(howto_pct)],
+            [f'FAQ 覆盖产品页占比（{total_product_pages} 页）', f'{faq_pct}%', pct_status(faq_pct)],
+            [f'HowTo 覆盖产品页占比（{total_product_pages} 页）', f'{howto_pct}%', pct_status(howto_pct)],
         ], ss, cw=[0.40, 0.30, 0.30]))
 
     # Recommendations - matched 考虑 about-us 页面

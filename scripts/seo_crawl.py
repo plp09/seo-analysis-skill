@@ -350,7 +350,7 @@ def extract_product_links(h, base_url):
         if is_product:
             links.append(full_url)
     
-    return links[:5]  # Return top 5 product links
+    return links[:25]  # Return top 25 product links for coverage statistics
 
 # === B2B Foreign Trade Keyword Analysis ===
 def detect_paa_content(h):
@@ -794,9 +794,9 @@ def main():
                 product_source = homepage_html
                 product_base = url
 
-            # Crawl product pages
+            # Crawl product pages (up to 20 for statistical coverage)
             if product_links:
-                for prod_url in product_links[:3]:
+                for prod_url in product_links[:20]:
                     print(f'[CRAWL]   Product: {prod_url}', file=sys.stderr)
                     prod_html, prod_status = fetch(prod_url)
                     if prod_html and isinstance(prod_status, int) and prod_status == 200:
