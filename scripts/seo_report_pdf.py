@@ -636,7 +636,7 @@ def generate(data, output_path, title=None):
     if has_about_page and 'Organization' not in jld_types:
         el.append(Spacer(1, 2*mm))
         el.append(Paragraph(
-            'Organization：检测到 About Us 页面，视为有公司信息展示，状态标记为「有」。'
+            'Organization：检测到 About Us 页面，视为有公司信息展示。'
             '建议进一步添加 Organization JSON-LD 结构化数据，以便 AI 搜索引擎准确理解公司信息。',
             ss['CalloutOK']))
 
