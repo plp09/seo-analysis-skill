@@ -308,6 +308,17 @@ def calc_scores(site):
     GEO_TYPES = {'FAQPage', 'HowTo', 'Organization', 'NewsArticle'}
     jld_types = site.get('jsonld', {}).get('types', [])
     matched = [t for t in jld_types if t in GEO_TYPES]
+    
+    # 检测 about-us 页面（视为有 Organization）
+    sub_pages = site.get('sub_pages', [])
+    has_about_page = any(
+        'about' in sp.get('url', '').lower() for sp in sub_pages
+    ) if sub_pages else False
+    
+    # 如果 Organization 不在 JSON-LD 但有 about-us 页面，加入 Organization
+    if has_about_page and 'Organization' not in matched:
+        matched.append('Organization')
+    
     nc = len(matched)
     if nc >= 4: geo_struct_score = 9
     elif nc >= 3: geo_struct_score = 8
@@ -600,13 +611,34 @@ def generate(data, output_path, title=None):
     el.append(Paragraph('十、GEO/AI 内容与结构', ss['H1Style']))
     el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
 
-    # Structure table
+    # Structure table - Organization 也考虑 about-us 页面
     jld_types = site.get('jsonld', {}).get('types', [])
     required = ['FAQPage', 'HowTo', 'Organization', 'NewsArticle']
+    
+    # 检测 about-us 页面是否存在（视为有 Organization 信息）
+    sub_pages = site.get('sub_pages', [])
+    has_about_page = any(
+        'about' in sp.get('url', '').lower() for sp in sub_pages
+    ) if sub_pages else False
+    
+    # Organization 判断：JSON-LD 或 about-us 页面
+    def has_schema(s):
+        if s == 'Organization':
+            return s in jld_types or has_about_page
+        return s in jld_types
+    
     el.append(make_table(
         ['Schema 类型', '是否检测到', '状态'],
-        [[s, '是' if s in jld_types else '否', '✅' if s in jld_types else '❌'] for s in required],
+        [[s, '是' if has_schema(s) else '否', '✅' if has_schema(s) else '❌'] for s in required],
         ss, cw=[0.40, 0.30, 0.30]))
+    
+    # Organization 备注
+    if has_about_page and 'Organization' not in jld_types:
+        el.append(Spacer(1, 2*mm))
+        el.append(Paragraph(
+            'Organization：检测到 About Us 页面，视为有公司信息展示，状态标记为「有」。'
+            '建议进一步添加 Organization JSON-LD 结构化数据，以便 AI 搜索引擎准确理解公司信息。',
+            ss['CalloutOK']))
 
     # Content table
     wc = site.get('word_count', 0)
@@ -620,8 +652,8 @@ def generate(data, output_path, title=None):
             ['HowTo 区块', str(howto), '关键缺失' if howto == 0 else '良好'],
         ], ss, cw=[0.30, 0.30, 0.40]))
 
-    # Recommendations
-    matched = [s for s in jld_types if s in required]
+    # Recommendations - matched 考虑 about-us 页面
+    matched = [s for s in required if has_schema(s)]
     if not matched:
         el.append(Spacer(1, 2*mm))
         el.append(Paragraph(
