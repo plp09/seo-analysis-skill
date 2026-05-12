@@ -232,6 +232,109 @@ def count_howto_blocks(h):
     jsonld = extract_jsonld(h)
     return jsonld['types'].count('HowTo')
 
+def extract_category_links(h, base_url):
+    """Extract category/product listing links from navigation menu.
+    Looks for links in nav, menu, or header areas.
+    Returns list of full URLs.
+    """
+    links = []
+    base = urlparse(base_url)
+    base_path = base.path.rstrip('/') or '/'
+    
+    # Find navigation areas
+    nav_patterns = [
+        r'<nav[^>]*>(.*?)</nav>',
+        r'<header[^>]*>(.*?)</header>',
+        r'<div[^>]+class=["\'][^"\']*(?:menu|nav|navigation)[^"\']*["\'][^>]*>(.*?)</div>',
+    ]
+    
+    for pattern in nav_patterns:
+        nav_matches = re.findall(pattern, h, re.I | re.S)
+        for nav_content in nav_matches:
+            # Extract all href links
+            href_matches = re.findall(r'href=["\']([^"\']*)["\']', nav_content, re.I)
+            for href in href_matches:
+                # Skip anchors, javascript, and external links
+                if href.startswith('#') or href.startswith('javascript') or href.startswith('mailto:'):
+                    continue
+                # Skip homepage itself
+                if href in ['/', '', base_path]:
+                    continue
+                # Skip common non-category paths
+                skip_patterns = ['/about', '/contact', '/blog', '/news', '/search', '/login', '/register', '/cart', '/account', '/faq', '/help', '/service', '/support', '/privacy', '/terms', '/sitemap', '/webim', '/video']
+                if any(skip in href.lower() for skip in skip_patterns):
+                    continue
+                # Build full URL
+                full_url = urljoin(base_url, href)
+                parsed = urlparse(full_url)
+                # Only keep links from same domain
+                if parsed.netloc == base.netloc and full_url != base_url and full_url not in links:
+                    # Prefer product/category related paths
+                    if any(kw in href.lower() for kw in ['product', 'category', 'collection', 'catalog', 'item', 'c/', 'p/']):
+                        links.insert(0, full_url)  # Prioritize
+                    elif len(links) < 10:  # Limit non-prioritized links
+                        links.append(full_url)
+    
+    return links[:5]  # Return top 5 category links
+
+def extract_product_links(h, base_url):
+    """Extract product detail page links from a category/listing page.
+    Returns list of full URLs.
+    """
+    links = []
+    base = urlparse(base_url)
+    
+    # Find all links in the page
+    href_matches = re.findall(r'href=["\']([^"\']*)["\']', h, re.I)
+    
+    for href in href_matches:
+        if href.startswith('#') or href.startswith('javascript') or href.startswith('mailto:'):
+            continue
+        # Skip navigation and utility links
+        skip_patterns = ['/about', '/contact', '/blog', '/news', '/search', '/login', '/register', '/cart', '/account', '/faq', '/help', '/service', '/support', '/privacy', '/terms', '/sitemap', '/category', '/collection', '/webim', '/video', '/products.html', '/products/']
+        if any(skip in href.lower() for skip in skip_patterns):
+            continue
+        
+        full_url = urljoin(base_url, href)
+        parsed = urlparse(full_url)
+        
+        # Only keep links from same domain
+        if parsed.netloc != base.netloc:
+            continue
+        
+        if full_url in links or full_url == base_url:
+            continue
+            
+        # Identify product page patterns - must be a detail page, not a listing
+        product_patterns = [
+            r'/product/[^/]+$',       # /product/something
+            r'/item/[^/]+$',          # /item/something
+            r'/p/[^/]+$',             # /p/something
+            r'/detail/[^/]+$',        # /detail/something
+            r'/[^/]+\.html$',         # ends with .html (common for product pages)
+        ]
+        
+        # Check if it matches product patterns
+        is_product = False
+        for pattern in product_patterns:
+            if re.search(pattern, href, re.I):
+                is_product = True
+                break
+        
+        # Additional check: has ID or specific structure in URL
+        if not is_product:
+            # Pattern like /product-name-123 or /123-product-name
+            if re.search(r'/[a-z0-9-]+-\d{2,}', href, re.I):
+                is_product = True
+            # Pattern like /123-product-name.html
+            elif re.search(r'/\d{2,}-[a-z0-9-]+\.html', href, re.I):
+                is_product = True
+        
+        if is_product:
+            links.append(full_url)
+    
+    return links[:5]  # Return top 5 product links
+
 # === B2B Foreign Trade Keyword Analysis ===
 def detect_paa_content(h):
     """Detect People Also Ask (PAA) content patterns on the page.
@@ -505,6 +608,7 @@ def analyze_page(url):
         return result
 
     result['http_status'] = status if isinstance(status, int) else 0
+    result['raw_html'] = page_html  # Store for deep crawl
 
     # 1-12: Original dimensions
     title = extract_title(page_html)
@@ -627,6 +731,63 @@ def main():
                     'b2b_keywords': analyze_b2b_keywords(sub_html),
                 }
                 sub_pages_data.append(sub_data)
+        site_data['sub_pages'] = sub_pages_data
+
+        # Deep crawl: Extract category links from homepage
+        print(f'[CRAWL]   Deep crawl: Extracting category links...', file=sys.stderr)
+        homepage_html = site_data.get('raw_html', '')
+        if homepage_html:
+            category_links = extract_category_links(homepage_html, url)
+            
+            # Crawl first category page
+            if category_links:
+                cat_url = category_links[0]
+                print(f'[CRAWL]   Category: {cat_url}', file=sys.stderr)
+                cat_html, cat_status = fetch(cat_url)
+                if cat_html and isinstance(cat_status, int) and cat_status == 200:
+                    cat_data = {
+                        'url': cat_url,
+                        'title': extract_title(cat_html),
+                        'h1_count': len(extract_headings(cat_html).get('H1', [])),
+                        'word_count': word_count(cat_html),
+                        'images': extract_images(cat_html),
+                        'jsonld': extract_jsonld(cat_html),
+                        'faq_block_count': count_faq_blocks(cat_html),
+                        'howto_block_count': count_howto_blocks(cat_html),
+                        'canonical': extract_canonical(cat_html),
+                        'b2b_keywords': analyze_b2b_keywords(cat_html),
+                        'page_type': 'category',
+                    }
+                    sub_pages_data.append(cat_data)
+                    
+                    # Extract product links from category page
+                    print(f'[CRAWL]   Extracting product links from category...', file=sys.stderr)
+                    product_links = extract_product_links(cat_html, cat_url)
+                    
+                    # Crawl first 3 product pages
+                    for prod_url in product_links[:3]:
+                        print(f'[CRAWL]   Product: {prod_url}', file=sys.stderr)
+                        prod_html, prod_status = fetch(prod_url)
+                        if prod_html and isinstance(prod_status, int) and prod_status == 200:
+                            prod_data = {
+                                'url': prod_url,
+                                'title': extract_title(prod_html),
+                                'h1_count': len(extract_headings(prod_html).get('H1', [])),
+                                'word_count': word_count(prod_html),
+                                'images': extract_images(prod_html),
+                                'jsonld': extract_jsonld(prod_html),
+                                'faq_block_count': count_faq_blocks(prod_html),
+                                'howto_block_count': count_howto_blocks(prod_html),
+                                'canonical': extract_canonical(prod_html),
+                                'b2b_keywords': analyze_b2b_keywords(prod_html),
+                                'page_type': 'product',
+                            }
+                            sub_pages_data.append(prod_data)
+
+        # Remove raw_html from final output (too large)
+        if 'raw_html' in site_data:
+            del site_data['raw_html']
+
         site_data['sub_pages'] = sub_pages_data
 
         print(f'[CRAWL]   Checking multilang...', file=sys.stderr)
