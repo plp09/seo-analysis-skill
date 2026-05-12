@@ -609,7 +609,7 @@ def main():
 
         # Crawl sub-pages
         sub_pages_data = []
-        for page in extra_pages[:3]:
+        for page in extra_pages[:5]:
             page_url = f"{url.rstrip('/')}{page}"
             print(f'[CRAWL]   Sub-page: {page_url}', file=sys.stderr)
             sub_html, sub_status = fetch(page_url)
