@@ -590,7 +590,7 @@ def main():
         sys.exit(1)
 
     urls = []
-    extra_pages = ['/about/', '/about-us/', '/products/', '/services/', '/blog/']
+    extra_pages = ['/about/', '/about-us/', '/aboutus.html', '/products/', '/services/', '/blog/']
     for arg in sys.argv[1:]:
         if arg.startswith('--pages='):
             extra_pages = [p if p.startswith('/') else f'/{p}' for p in arg[8:].split(',')]
