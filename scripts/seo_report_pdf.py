@@ -1103,7 +1103,7 @@ def generate(data, output_path, title=None):
     kw_sys = site.get('backend_keyword_system')
     if kw_sys:
         primary_cats = kw_sys.get('primary_categories', [])
-        cat_label = ' + '.join(primary_cats[:2]) if primary_cats else 'Unknown'
+        cat_label = primary_cats[0] if primary_cats else 'Unknown'
         
         el.append(Spacer(1, 6*mm))
         el.append(Paragraph(
