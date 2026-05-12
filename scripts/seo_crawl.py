@@ -942,20 +942,36 @@ def analyze_b2b_keywords(h):
 
 
 def generate_backend_keyword_system(categories, product_titles=None, site_text=None):
-    """Generate a backend keyword system based on website categories.
+    """Generate a backend keyword system based on website categories and actual product content.
     
     Produces 4 dimensions:
       - 词根 (Root keywords): 5 core product name variations
       - 关键词 (Main keywords): 20 keywords from core to long-tail
       - TAG词 (TAG keywords): 3 high-value attribute combinations
       - 卖点 (Selling points): up to 50 points across 12 categories
+    
+    Industry knowledge is derived from: (1) category names, (2) actual product title text,
+    (3) combined site text. Types are detected by scanning BOTH categories individually
+    AND the full product title corpus, then picking the most-confident match.
     """
     if not categories:
         categories = ['Product']
     primary_cats = [c.strip() for c in categories[:2] if c.strip()]
     if not primary_cats:
         primary_cats = ['Product']
-    all_cat_text = ' '.join(primary_cats).lower()
+
+    # ── Build comprehensive text corpus for type detection ───
+    # Scan each category separately + product titles + site_text for industry context
+    all_text_parts = []
+    for cat in primary_cats:
+        all_text_parts.append(cat.lower())
+    # Also scan each category individually for type scoring (avoid cross-contamination)
+    cat_type_scores = {}  # type -> sum of scores across categories
+    
+    # Product titles give real industry context even when categories are misaligned
+    prod_text = ' '.join(product_titles).lower() if product_titles else ''
+    site_text_combined = (site_text or '').lower()
+    corpus = f"{' '.join(all_text_parts)} {prod_text} {site_text_combined}"
     
     # ── Product type detection (scoring) ──────────────────────
     PTYPES = {
@@ -1039,17 +1055,33 @@ def generate_backend_keyword_system(categories, product_titles=None, site_text=N
         ),
     }
     
-    # Score each type
-    best_type = None
-    best_score = 0
+    # Score each type using BOTH categories (individually) AND product title corpus.
+    # This prevents cross-contamination: "Led High Bay + Led Strip Light" won't dilute
+    # highbay signals just because strip appears in the second category.
+    type_scores = {}
     for tname, tdef in PTYPES.items():
-        score = sum(2 if kw in all_cat_text else 0 for kw in tdef['kw'])
-        # Negative words reduce score
-        score -= sum(3 if neg in all_cat_text else 0 for neg in tdef['neg'])
-        if score > best_score:
-            best_score = score
-            best_type = tname
-    
+        type_scores[tname] = 0
+
+    # Score per-category (each category scored independently)
+    for cat in primary_cats:
+        cat_lower = cat.lower()
+        for tname, tdef in PTYPES.items():
+            score = sum(2 if kw in cat_lower else 0 for kw in tdef['kw'])
+            score -= sum(3 if neg in cat_lower else 0 for neg in tdef['neg'])
+            type_scores[tname] += max(0, score)
+
+    # Boost type confidence if product titles strongly confirm it
+    if prod_text:
+        for tname, tdef in PTYPES.items():
+            # Product titles are ground truth - strong match = big boost
+            title_boost = sum(3 if kw in prod_text else 0 for kw in tdef['kw'])
+            title_boost -= sum(4 if neg in prod_text else 0 for neg in tdef['neg'])
+            type_scores[tname] += title_boost
+
+    # Pick winner
+    best_type = max(type_scores, key=type_scores.get) if any(type_scores.values()) else None
+    best_score = type_scores.get(best_type, 0) if best_type else 0
+
     # Fallback: if no type matched, try to derive from category names
     if best_type is None or best_score <= 0:
         # Generic: use cleaned category names as roots
@@ -1872,7 +1904,8 @@ def main():
                 # Generate backend keyword system based on top 2 categories
                 top_2_cats = b2b_summary.get('top_categories', [])[:2]
                 prod_titles = [pp.get('title', {}).get('text', '') for pp in product_pages if pp.get('title', {}).get('text')]
-                kw_system = generate_backend_keyword_system(top_2_cats, product_titles=prod_titles)
+                site_text_raw = html_mod.unescape(site_data.get('raw_html', '') if 'raw_html' in site_data else '')
+                kw_system = generate_backend_keyword_system(top_2_cats, product_titles=prod_titles, site_text=site_text_raw)
                 site_data['backend_keyword_system'] = kw_system
                 print(f'[CRAWL]   Backend keyword system generated: {len(kw_system["roots"])} roots, {len(kw_system["keywords"])} keywords, {len(kw_system["tags"])} tags, {sum(len(v) for v in kw_system["selling_points"].values())} selling points', file=sys.stderr)
 
