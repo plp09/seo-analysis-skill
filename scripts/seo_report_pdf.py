@@ -1096,6 +1096,83 @@ def generate(data, output_path, title=None):
         el.append(Paragraph('<b>标题短语提取：</b>', ss['Label']))
         el.append(Paragraph('、'.join(uniq_h), ss['Body']))
 
+    # ============================================================
+    # Backend Keyword System (后端关键词体系)
+    # Based on top 2 categories: 词根5 + 关键词20 + TAG词3 + 卖点≤50
+    # ============================================================
+    kw_sys = site.get('backend_keyword_system')
+    if kw_sys:
+        primary_cats = kw_sys.get('primary_categories', [])
+        cat_label = ' + '.join(primary_cats[:2]) if primary_cats else 'Unknown'
+        
+        el.append(Spacer(1, 6*mm))
+        el.append(Paragraph(
+            f'<font color="{PRIMARY}"><b>✅ {cat_label} 后端关键词体系已生成！</b></font>',
+            ss['H2Style']))
+        el.append(HRFlowable(width='100%', thickness=0.8, color=colors.HexColor('#DEE2E6'), spaceAfter=4*mm))
+        
+        # --- Overview table ---
+        sp_total = sum(len(v) for v in kw_sys.get('selling_points', {}).values())
+        overview_rows = [
+            ['📚 词根', f'{len(kw_sys.get("roots", []))} 个', ', '.join(kw_sys.get('roots', []))],
+            ['🔑 关键词', f'{len(kw_sys.get("keywords", []))} 个', '从核心词到长尾词的完整覆盖'],
+            ['📁 TAG 词', f'{len(kw_sys.get("tags", []))} 个', ', '.join(kw_sys.get('tags', []))],
+            ['💎 卖点', f'{sp_total} 个', '按12种类型分类（防护/电压/LED类型/密度/亮度/色彩/色温/光学/结构/安装/封装/认证/包装/场景等）'],
+        ]
+        el.append(Paragraph('<b>关键词体系总览</b>', ss['Label']))
+        el.append(make_table(
+            ['维度', '数量', '说明'],
+            overview_rows, ss, cw=[0.15, 0.10, 0.75]))
+        el.append(Spacer(1, 4*mm))
+        
+        # --- 词根 (Root Keywords) ---
+        roots = kw_sys.get('roots', [])
+        if roots:
+            root_rows = [[r, '核心产品命名变体'] for r in roots]
+            el.append(Paragraph('<b>📚 词根 (Root Keywords)</b>', ss['H2Style']))
+            el.append(make_table(['词根', '说明'], root_rows, ss, cw=[0.55, 0.45]))
+            el.append(Spacer(1, 3*mm))
+        
+        # --- 关键词 (Main Keywords) - 2 columns ---
+        kws = kw_sys.get('keywords', [])
+        if kws:
+            el.append(Paragraph('<b>🔑 关键词 (Keywords)</b>', ss['H2Style']))
+            half = (len(kws) + 1) // 2
+            kw_rows = []
+            for i in range(half):
+                left = kws[i]
+                right = kws[half + i] if half + i < len(kws) else ''
+                kw_rows.append([left, right])
+            el.append(make_table(
+                ['核心→属性→长尾 (1-10)', '场景→交易→定制 (11-20)'],
+                kw_rows, ss, cw=[0.50, 0.50]))
+            el.append(Spacer(1, 3*mm))
+        
+        # --- TAG词 (TAG Keywords) ---
+        tags = kw_sys.get('tags', [])
+        if tags:
+            tag_rows = [[t, '高价值属性组合，适合做产品变体页Title'] for t in tags]
+            el.append(Paragraph('<b>📁 TAG 词 (Tag Keywords)</b>', ss['H2Style']))
+            el.append(make_table(['TAG词', '用途说明'], tag_rows, ss, cw=[0.55, 0.45]))
+            el.append(Spacer(1, 3*mm))
+        
+        # --- 卖点 (Selling Points) - by category ---
+        selling_points = kw_sys.get('selling_points', {})
+        if selling_points:
+            el.append(Paragraph('<b>💎 卖点 (Selling Points)</b>', ss['H2Style']))
+            for sp_cat_name, sp_list in selling_points.items():
+                if sp_list:
+                    sp_rows = []
+                    for sp in sp_list:
+                        sp_rows.append([sp])
+                    el.append(Paragraph(f'<b>{sp_cat_name}</b>', ss['Label']))
+                    el.append(make_table(
+                        ['卖点描述'],
+                        sp_rows, ss, cw=[1.0]))
+                    el.append(Spacer(1, 2*mm))
+
+    # Category-based keyword recommendations (legacy, shown below keyword system)
+
     # Category-based keyword recommendations
     top_cats = b2b.get('top_categories', [])
     if top_cats:

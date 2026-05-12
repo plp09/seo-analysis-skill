@@ -940,6 +940,642 @@ def analyze_b2b_keywords(h):
         'recommended_keywords': {},  # Will be populated by report generator
     }
 
+
+def generate_backend_keyword_system(categories, product_titles=None, site_text=None):
+    """Generate a backend keyword system based on website categories.
+    
+    Produces 4 dimensions:
+      - 词根 (Root keywords): 5 core product name variations
+      - 关键词 (Main keywords): 20 keywords from core to long-tail
+      - TAG词 (TAG keywords): 3 high-value attribute combinations
+      - 卖点 (Selling points): up to 50 points across 12 categories
+    """
+    if not categories:
+        categories = ['Product']
+    primary_cats = [c.strip() for c in categories[:2] if c.strip()]
+    if not primary_cats:
+        primary_cats = ['Product']
+    all_cat_text = ' '.join(primary_cats).lower()
+    
+    # ── Product type detection (scoring) ──────────────────────
+    PTYPES = {
+        'highbay': dict(
+            kw=['high bay', 'highbay', 'ufo', 'bay light'], neg=['strip', 'tape', 'ribbon'],
+            roots=['LED high bay light', 'UFO high bay', 'high bay lighting fixture',
+                   'industrial high bay light', 'warehouse high bay LED'],
+            tags=['UFO high bay', 'linear high bay', 'round high bay'],
+            scenes=['warehouse industrial lighting', 'factory workshop illumination',
+                    'gymnasium sports arena', 'supermarket shopping mall',
+                    'exhibition hall event venue', 'logistics center distribution hub',
+                    'parking garage underground'],
+            attrs={'power': '50W 100W 150W 200W 240W 300W 400W 500W',
+                   'led': 'SMD3030/SMD2835/SMD5050/COB',
+                   'lumen': '130-160lm/W', 'mount': 'suspended/hook/surface/chain',
+                   'beam': '60°/90°/120°', 'voltage': 'AC100-277V/AC200-480V'},
+        ),
+        'floodlight': dict(
+            kw=['flood light', 'floodlight', 'projector', 'spotlight'], neg=[],
+            roots=['LED flood light', 'outdoor floodlight', 'LED spotlight',
+                   'stadium flood light', 'sports lighting fixture'],
+            tags=['stadium flood light', 'sports flood light', 'tri-proof flood light'],
+            scenes=['stadium sports field', 'parking lot outdoor',
+                    'building facade', 'billboard advertising',
+                    'construction site', 'port terminal', 'garden landscape'],
+            attrs={'power': '50W 100W 150W 200W 300W 500W 1000W',
+                   'led': 'SMD3030/COB/SMD5050', 'lumen': '120-160lm/W',
+                   'mount': 'bracket/pole/wall/ground spike',
+                   'beam': '15°-30°/60°/120°/asymmetric', 'voltage': 'AC100-277V/AC85-265V'},
+        ),
+        'streetlight': dict(
+            kw=['street light', 'streetlight', 'road light', 'solar light', 'garden light', 'area light'], neg=[],
+            roots=['LED street light', 'solar street light', 'roadway LED lamp',
+                   'outdoor area light', 'garden LED light'],
+            tags=['solar street light', 'smart street light', 'dual-arm street light'],
+            scenes=['highway roadway', 'urban road residential', 'park pathway garden',
+                    'parking lot', 'campus school', 'industrial zone'],
+            attrs={'power': '30W 50W 80W 100W 150W 200W 300W',
+                   'led': 'SMD3030/SMD5050/COB/Luxeon', 'lumen': '120-160lm/W',
+                   'mount': 'pole mount/arm bracket/post top/wall',
+                   'beam': 'Type II/III/V cutoff', 'voltage': 'AC100-277V/AC85-265V/DC12V-24V solar'},
+        ),
+        'striplight': dict(
+            kw=['strip light', 'strip', 'tape light', 'ribbon', 'neon', 'rope light', 'flexible led'], neg=['high bay', 'highbay'],
+            roots=['LED strip light', 'LED tape light', 'flexible LED strip',
+                   'LED ribbon light', 'linear LED strip'],
+            tags=['RGB LED strip', 'COB LED strip', 'addressable LED strip'],
+            scenes=['home decoration cove', 'kitchen cabinet under cabinet',
+                    'bedroom ambient lighting', 'bar restaurant mood',
+                    'store display showcase', 'garden pathway outdoor',
+                    'backlight signage advertising', 'staircase step lighting'],
+            attrs={'power': '4.8W/m 7.2W/m 9.6W/m 14.4W/m 19.2W/m 24W/m',
+                   'led': 'SMD2835/SMD5050/SMD3528/COB/WS2812B',
+                   'lumen': '800-1800lm/m', 'mount': 'adhesive/aluminum channel/clip/screw',
+                   'beam': '120°/180°/30°/frosted', 'voltage': 'DC12V/DC24V/DC5V USB'},
+        ),
+        'panellight': dict(
+            kw=['panel light', 'panel', 'flat panel', 'downlight', 'troffer',
+                'ceiling panel', 'backlit', 'edge-lit'], neg=[],
+            roots=['LED panel light', 'flat panel LED', 'LED troffer',
+                   'ceiling panel light', 'backlit panel light'],
+            tags=['backlit panel', 'edge-lit panel', 'dimmable panel'],
+            scenes=['office workspace', 'conference room', 'hospital corridor',
+                    'school classroom', 'hotel lobby', 'retail store'],
+            attrs={'power': '18W 36W 40W 45W 60W 72W',
+                   'led': 'SMD2835/SMD3014/SMD4014/COB',
+                   'lumen': '100-130lm/W', 'mount': 'recessed/surface/suspended',
+                   'beam': '120° uniform', 'voltage': 'AC100-277V/AC85-265V'},
+        ),
+        'tubelight': dict(
+            kw=['tube light', 'tube', 'batten', 'trunking', 'linear light'], neg=['high bay', 'strip', 'tape'],
+            roots=['LED tube light', 'LED batten fixture', 'integrated tube light',
+                   'LED trunking system', 'linear batten light'],
+            tags=['integrated tube', 'trunking tube', 'emergency tube'],
+            scenes=['warehouse aisle', 'workshop production line', 'office corridor',
+                    'parking garage', 'cold storage', 'retail backroom'],
+            attrs={'power': '9W 18W 20W 22W 28W 36W 40W',
+                   'led': 'SMD2835/SMD3014/SMD4014', 'lumen': '100-140lm/W',
+                   'mount': 'surface/suspended/recessed/chain',
+                   'beam': '180°/270°/360°', 'voltage': 'AC100-277V/AC85-265V'},
+        ),
+    }
+    
+    # Score each type
+    best_type = None
+    best_score = 0
+    for tname, tdef in PTYPES.items():
+        score = sum(2 if kw in all_cat_text else 0 for kw in tdef['kw'])
+        # Negative words reduce score
+        score -= sum(3 if neg in all_cat_text else 0 for neg in tdef['neg'])
+        if score > best_score:
+            best_score = score
+            best_type = tname
+    
+    # Fallback: if no type matched, try to derive from category names
+    if best_type is None or best_score <= 0:
+        # Generic: use cleaned category names as roots
+        best_type = None
+    
+    # ── 1. 词根 (Root Keywords) — 5个 ────────────────────────
+    roots = []
+    if best_type:
+        # Start with first category name (cleaned)
+        cat1_clean = re.sub(r'[^A-Za-z0-9 ]+', '', primary_cats[0]).strip()
+        roots.append(cat1_clean)
+        # Add type-specific roots that differ from cat1
+        for r in PTYPES[best_type]['roots']:
+            if r.lower() != cat1_clean.lower() and r not in roots:
+                roots.append(r)
+            if len(roots) >= 5:
+                break
+        # If second category differs significantly, replace last root
+        if len(primary_cats) >= 2:
+            cat2_clean = re.sub(r'[^A-Za-z0-9 ]+', '', primary_cats[1]).strip()
+            if cat2_clean.lower() != cat1_clean.lower() and cat2_clean not in roots:
+                roots.append(cat2_clean)
+    else:
+        # Generic fallback
+        for cat in primary_cats:
+            clean = re.sub(r'[^A-Za-z0-9 ]+', '', cat).strip()
+            if clean and clean not in roots:
+                roots.append(clean)
+        # Add common synonyms
+        for syn in ['light', 'lamp', 'fixture', 'fitting', 'luminaire']:
+            base = re.sub(r'[^A-Za-z0-9 ]+', '', primary_cats[0]).strip().split()[0]
+            candidate = f'{base} {syn}'
+            if candidate.lower() not in [r.lower() for r in roots]:
+                roots.append(candidate)
+            if len(roots) >= 5:
+                break
+    
+    roots = list(dict.fromkeys(roots))[:5]
+    while len(roots) < 5:
+        roots.append(f'{primary_cats[0]} LED variant {len(roots)+1}')
+    roots = roots[:5]
+    
+    # ── 2. 关键词 (Main Keywords) — 20个 ─────────────────────
+    keywords = []
+    seen_kw = set()
+    
+    def add_kw(kw):
+        if kw.lower() not in seen_kw:
+            keywords.append(kw)
+            seen_kw.add(kw.lower())
+    
+    # Core exact matches (use top 3 roots)
+    for r in roots[:3]:
+        add_kw(r)
+    
+    # Transaction-intent (manufacturer/supplier/wholesale)
+    for r in roots[:2]:
+        add_kw(f'{r} manufacturer')
+        add_kw(f'{r} supplier China')
+        add_kw(f'{r} wholesale')
+    
+    # Attribute-modified
+    if best_type == 'highbay':
+        attrs = ['UFO', 'linear', 'dimmable', 'waterproof IP65', 'DLC listed']
+    elif best_type == 'floodlight':
+        attrs = ['outdoor', 'stadium', 'RGBW', 'dimmable', 'IP66 waterproof']
+    elif best_type == 'streetlight':
+        attrs = ['solar powered', 'smart', 'dimmable', 'IP66', 'DLC listed']
+    elif best_type == 'striplight':
+        attrs = ['RGB', 'COB', 'dimmable', 'waterproof IP65', 'addressable']
+    elif best_type == 'panellight':
+        attrs = ['backlit', 'edge-lit', 'dimmable', 'color tunable', 'emergency']
+    elif best_type == 'tubelight':
+        attrs = ['integrated', 'emergency backup', 'motion sensor', 'vapor tight', 'linkable']
+    else:
+        attrs = ['dimmable', 'waterproof', 'smart', 'energy saving', 'commercial']
+    for attr in attrs:
+        for r in roots[:2]:
+            add_kw(f'{attr} {r}')
+    
+    # Scenario / long-tail
+    scenes = PTYPES[best_type]['scenes'] if best_type else [
+        'warehouse', 'office', 'retail', 'outdoor', 'commercial'
+    ]
+    for scene in scenes[:4]:
+        r = roots[0]
+        add_kw(f'{r} for {scene}')
+    
+    # B2B transaction long-tail
+    b2b_templates = [
+        f'{roots[0]} OEM ODM', f'{roots[0]} factory direct',
+        f'{roots[0]} bulk order', f'{roots[0]} fast delivery',
+    ]
+    for kw in b2b_templates:
+        add_kw(kw)
+    
+    # Pad to 20
+    extra = [
+        f'best {roots[0]} manufacturer', f'{roots[0]} price list',
+        f'{roots[0]} catalog PDF', f'{roots[0]} installation guide',
+        f'energy saving {roots[0]}', f'{roots[0]} with 5 year warranty',
+        f'{roots[0]} CE RoHS certified',
+    ]
+    for kw in extra:
+        add_kw(kw)
+    
+    keywords = keywords[:20]
+    
+    # ── 3. TAG词 (TAG Keywords) — 3个 ───────────────────────
+    tags = []
+    if best_type:
+        for t in PTYPES[best_type]['tags'][:3]:
+            tags.append(t)
+    else:
+        tags = [f'waterproof {roots[0]}', f'dimmable {roots[0]}', f'commercial {roots[0]}']
+    tags = tags[:3]
+    
+    # ── 4. 卖点 (Selling Points) — ≤50个，按12类 ───────────
+    # Build type-specific selling points
+    td = PTYPES.get(best_type, {})
+    attrs_info = td.get('attrs', {})
+    
+    # Type-specific selling points database (full descriptive text)
+    SP_DB = {
+        'highbay': {
+            '防护等级 (Protection)': [
+                'IP65 waterproof dustproof rating', 'IP66 heavy duty waterproof',
+                'IK10 impact resistant housing', 'anti-corrosion aluminum body',
+            ],
+            '电压规格 (Voltage)': [
+                'AC100-277V universal voltage input', 'AC200-480V high voltage option',
+                'AC120-347V Canada standard', 'AC85-265V wide range input',
+            ],
+            'LED类型 (LED Type)': [
+                'SMD3030 high efficiency chips', 'SMD2835 cost-effective chips',
+                'SMD5050 high brightness chips', 'COB integrated chip on board',
+            ],
+            '光效密度 (Luminosity)': [
+                '130lm/W standard efficiency', '150lm/W high efficiency',
+                '160lm/W ultra high efficiency', '170lm/W premium efficiency',
+            ],
+            '亮度色温 (Brightness/CCT)': [
+                '2700K warm white cozy', '4000K neutral white natural',
+                '5000K daylight white clear', '3000K-6500K CCT tunable optional',
+                'CRI>80 standard color rendering',
+            ],
+            '光学设计 (Optics)': [
+                '60° narrow beam for 10m+ ceiling', '90° standard beam angle',
+                '120° wide beam for low ceiling', 'anti-glare reflector design',
+                'PC lens diffuser optional',
+            ],
+            '结构安装 (Structure/Mount)': [
+                'suspended hanging kit included', 'hook mount easy quick install',
+                'surface mounted ceiling', 'chain/cable mounting flexible height',
+                'bracket adjustable angle',
+            ],
+            '封装工艺 (Encapsulation)': [
+                'die-cast aluminum heat sink', 'aluminum alloy housing durable',
+                'PC cover flame retardant V0', 'modular design easy maintenance',
+                'fin-type cooling structure',
+            ],
+            '认证合规 (Certifications)': [
+                'CE RoHS certified for EU', 'FCC approved for US',
+                'UL/DLC listed safety', 'TUV SGS quality verified',
+                'ISO9001 manufacturing standard',
+            ],
+            '包装物流 (Packaging/Logistics)': [
+                'individual box packaging safe', 'foam protection shock-proof',
+                'neutral packing OEM available', 'carton pallet export standard',
+            ],
+            '场景应用 (Applications)': [
+                'warehouse industrial lighting', 'factory workshop illumination',
+                'gymnasium sports arena', 'supermarket shopping mall',
+                'exhibition hall event venue', 'logistics center distribution hub',
+            ],
+            '服务保障 (Service/Warranty)': [
+                '5 years warranty coverage', 'free spare parts replacement',
+                '24/7 technical support', 'fast delivery 7-15 days',
+                'MOQ flexible small order OK', 'OEM ODM custom service',
+            ],
+        },
+        'floodlight': {
+            '防护等级 (Protection)': [
+                'IP66 heavy rain waterproof', 'IP65 outdoor dustproof',
+                'IK08 impact resistant', 'anti-UV PC cover outdoor',
+            ],
+            '电压规格 (Voltage)': [
+                'AC100-277V universal input', 'AC85-265V wide range',
+                'AC220-240V EU standard',
+            ],
+            'LED类型 (LED Type)': [
+                'SMD3030 high power chips', 'COB integrated high power',
+                'SMD5050 bright output', 'RGBW color mixing available',
+            ],
+            '光效密度 (Luminosity)': [
+                '120lm/W standard', '140lm/W high efficiency', '160lm/W premium',
+            ],
+            '亮度色温 (Brightness/CCT)': [
+                '2700K-6500K CCT selectable', 'single color warm/neutral/daylight',
+                'RGBW full color DMX control', 'CRI>80 color rendering',
+            ],
+            '光学设计 (Optics)': [
+                '15°-30° narrow spot beam', '60° medium flood beam',
+                '120° wide flood beam', 'asymmetric optic for billboard',
+            ],
+            '结构安装 (Structure/Mount)': [
+                'bracket adjustable 180° angle', 'pole mount slip fitter',
+                'wall mounted bracket', 'ground spike for garden',
+                'trunnion mount for stadium',
+            ],
+            '封装工艺 (Encapsulation)': [
+                'die-cast aluminum housing', 'tempered glass cover 4mm',
+                'breathable valve anti-fog', 'stainless steel screws anti-rust',
+            ],
+            '认证合规 (Certifications)': [
+                'CE RoHS certified', 'FCC approved', 'UL listed',
+                'DLC premium qualified', 'SGS tested',
+            ],
+            '包装物流 (Packaging/Logistics)': [
+                'honeycomb carton protection', 'foam lined packaging',
+                'OEM custom label', 'wooden case for large order',
+            ],
+            '场景应用 (Applications)': [
+                'stadium sports field lighting', 'parking lot outdoor',
+                'building facade architectural', 'billboard advertising',
+                'construction site', 'port terminal', 'garden landscape',
+            ],
+            '服务保障 (Service/Warranty)': [
+                '5 years warranty', 'free spare parts', '24/7 technical support',
+                'fast delivery 7-15 days', 'OEM ODM custom service',
+            ],
+        },
+        'streetlight': {
+            '防护等级 (Protection)': [
+                'IP66 road grade waterproof', 'IP65 outdoor dustproof',
+                'IK10 vandal resistant', 'typhoon resistant design',
+            ],
+            '电压规格 (Voltage)': [
+                'AC100-277V universal', 'AC85-265V wide range',
+                'DC12V/24V solar compatible',
+            ],
+            'LED类型 (LED Type)': [
+                'SMD3030 road lighting chips', 'SMD5050 high brightness',
+                'COB focused beam', 'Luxeon premium chips',
+            ],
+            '光效密度 (Luminosity)': [
+                '120lm/W standard', '140lm/W high efficiency', '160lm/W premium',
+            ],
+            '亮度色温 (Brightness/CCT)': [
+                '3000K warm for residential', '4000K neutral for urban',
+                '5000K daylight for highway', 'NEMA cutoff classifications',
+            ],
+            '光学设计 (Optics)': [
+                'Type II street distribution', 'Type III general distribution',
+                'Type V square area', 'cutoff semi-cutoff non-cutoff',
+            ],
+            '结构安装 (Structure/Mount)': [
+                'pole mount slip fitter', 'arm bracket adjustable',
+                'post top mount round pole', 'wall mount bracket',
+            ],
+            '封装工艺 (Encapsulation)': [
+                'die-cast aluminum housing', 'tempered glass lens 4mm',
+                'stainless steel hardware', 'modular driver design',
+            ],
+            '认证合规 (Certifications)': [
+                'CE RoHS certified', 'FCC approved', 'UL/DLC listed',
+                'IESNA standard compliant',
+            ],
+            '包装物流 (Packaging/Logistics)': [
+                'individual carton packaging', 'foam protection shipping',
+                'OEM label available', 'pallet export standard',
+            ],
+            '场景应用 (Applications)': [
+                'highway roadway lighting', 'urban residential road',
+                'park pathway garden', 'parking lot area',
+                'campus school', 'industrial zone',
+            ],
+            '服务保障 (Service/Warranty)': [
+                '5 years warranty', 'free spare parts', '24/7 technical support',
+                'fast delivery 10-20 days', 'OEM ODM custom',
+            ],
+        },
+        'striplight': {
+            '防护等级 (Protection)': [
+                'IP20 indoor non-waterproof', 'IP65 waterproof silicone coating',
+                'IP67 fully sealed tube', 'IP68 submersible neon',
+            ],
+            '电压规格 (Voltage)': [
+                'DC12V safe low voltage', 'DC24V longer run length',
+                'DC5V USB powered', 'AC110V/220V plug-play',
+            ],
+            'LED类型 (LED Type)': [
+                'SMD2835 high efficiency 60LED/m', 'SMD5050 bright RGB 30LED/m',
+                'SMD3528 economy 120LED/m', 'COB dotless seamless glow',
+                'WS2812B addressable individual',
+            ],
+            '光效密度 (Luminosity)': [
+                '800lm/m standard brightness', '1200lm/m bright',
+                '1800lm/m ultra bright', 'no dark spot even illumination',
+            ],
+            '亮度色温 (Brightness/CCT)': [
+                '2700K warm white cozy', '4000K neutral white',
+                '5000K daylight white', 'RGB 16 million colors',
+                'CCT tunable warm to cool',
+            ],
+            '光学设计 (Optics)': [
+                '120° wide beam SMD', '180° ultra wide COB',
+                '30° focused lens strip', 'frosted diffuser soft glow',
+                'clear cover bright output',
+            ],
+            '结构安装 (Structure/Mount)': [
+                '3M adhesive backing peel-stick', 'aluminum channel profile mount',
+                'clip mounting quick release', 'screw fix permanent install',
+                'magnetic strip metal surface',
+            ],
+            '封装工艺 (Encapsulation)': [
+                'flexible PCB bendable 360°', 'silicone coating waterproof',
+                'PU glue sealed outdoor', 'neon tube silicone diffuser',
+            ],
+            '认证合规 (Certifications)': [
+                'CE RoHS certified', 'FCC approved',
+                'UL listed low voltage', 'ETL certified',
+            ],
+            '包装物流 (Packaging/Logistics)': [
+                '5m/roll standard packaging', 'anti-static bag protection',
+                'custom length cutting available', 'OEM custom label',
+            ],
+            '场景应用 (Applications)': [
+                'home decoration cove lighting', 'kitchen cabinet under cabinet',
+                'bedroom ambient mood', 'bar restaurant atmosphere',
+                'store display showcase', 'garden pathway outdoor',
+                'backlight signage advertising',
+            ],
+            '服务保障 (Service/Warranty)': [
+                '3 years warranty', 'free connector accessories',
+                'installation guide included', 'fast delivery 5-10 days',
+                'OEM ODM custom length',
+            ],
+        },
+        'panellight': {
+            '防护等级 (Protection)': [
+                'IP40 indoor office grade', 'IP54 dustproof corridor',
+                'IP65 waterproof outdoor ceiling',
+            ],
+            '电压规格 (Voltage)': [
+                'AC100-277V universal input', 'AC85-265V wide range',
+                'AC220-240V EU standard',
+            ],
+            'LED类型 (LED Type)': [
+                'SMD2835 high efficiency', 'SMD3014 slim design',
+                'SMD4014 premium output', 'COB edge-lit uniform',
+            ],
+            '光效密度 (Luminosity)': [
+                '100lm/W standard', '120lm/W high efficiency', '130lm/W premium',
+            ],
+            '亮度色温 (Brightness/CCT)': [
+                '3000K warm office', '4000K neutral workspace',
+                '5000K daylight classroom', 'CCT tunable 3000-5000K',
+            ],
+            '光学设计 (Optics)': [
+                '120° uniform light distribution', 'LG PMMA light guide plate',
+                'anti-glare UGR<19', 'frosted diffuser soft light',
+            ],
+            '结构安装 (Structure/Mount)': [
+                'recessed T-bar ceiling mount', 'surface mounted direct',
+                'suspended cable hanging', 'wall mount vertical',
+            ],
+            '封装工艺 (Encapsulation)': [
+                'aluminum frame slim 10mm', 'iron frame economy option',
+                'PMMA LGP light guide', 'back-shell heat dissipation',
+            ],
+            '认证合规 (Certifications)': [
+                'CE RoHS certified', 'FCC approved', 'UL/DLC listed',
+                'TUV certified', 'SAA Australia',
+            ],
+            '包装物流 (Packaging/Logistics)': [
+                'honeycomb corner protection', 'foam lined carton',
+                'OEM custom box', 'pallet export standard',
+            ],
+            '场景应用 (Applications)': [
+                'office workspace lighting', 'conference room',
+                'hospital corridor', 'school classroom',
+                'hotel lobby', 'retail store',
+            ],
+            '服务保障 (Service/Warranty)': [
+                '5 years warranty', 'free spare parts',
+                '24/7 technical support', 'fast delivery 7-15 days',
+                'OEM ODM custom size',
+            ],
+        },
+        'tubelight': {
+            '防护等级 (Protection)': [
+                'IP20 indoor standard', 'IP44 moisture proof',
+                'IP65 waterproof batten', 'IP68 vapor tight gasket',
+            ],
+            '电压规格 (Voltage)': [
+                'AC100-277V universal', 'AC85-265V wide range',
+                'DC12V/24V emergency backup',
+            ],
+            'LED类型 (LED Type)': [
+                'SMD2835 economy chips', 'SMD3014 high density',
+                'SMD4014 premium output', 'double row LED array',
+            ],
+            '光效密度 (Luminosity)': [
+                '100lm/W standard', '120lm/W high efficiency', '140lm/W premium',
+            ],
+            '亮度色温 (Brightness/CCT)': [
+                '4000K neutral white standard', '5000K daylight bright',
+                '6500K cool white industrial', 'CCT selectable switch',
+            ],
+            '光学设计 (Optics)': [
+                '180° half-angle tube', '270° wide spread',
+                '360° full circle batten', 'frosted cover anti-glare',
+            ],
+            '结构安装 (Structure/Mount)': [
+                'surface mounted clip-in', 'suspended chain hanging',
+                'recessed T-bar ceiling', 'linkable continuous row',
+            ],
+            '封装工艺 (Encapsulation)': [
+                'PC tube shatterproof', 'aluminum + PC hybrid',
+                'V0 flame retardant cover', 'G13 standard base',
+            ],
+            '认证合规 (Certifications)': [
+                'CE RoHS certified', 'FCC approved',
+                'UL listed safety', 'TUV verified',
+            ],
+            '包装物流 (Packaging/Logistics)': [
+                'individual tube box', 'foam end caps protection',
+                '25pcs/carton bulk', 'OEM custom label',
+            ],
+            '场景应用 (Applications)': [
+                'warehouse aisle lighting', 'workshop production line',
+                'office corridor', 'parking garage',
+                'cold storage -20°C', 'retail backroom',
+            ],
+            '服务保障 (Service/Warranty)': [
+                '5 years warranty', 'free spare parts',
+                '24/7 technical support', 'fast delivery 7-15 days',
+                'OEM ODM custom spec',
+            ],
+        },
+    }
+    
+    # Generic fallback for unknown product types
+    SP_GENERIC = {
+        '防护等级 (Protection)': [
+            'IP65 waterproof dustproof', 'IP67 fully sealed',
+            'IK10 impact resistant', 'outdoor weatherproof',
+        ],
+        '电压规格 (Voltage)': [
+            'AC100-277V universal voltage', 'DC12V/24V low voltage safe',
+            'AC220-240V standard',
+        ],
+        'LED类型 (LED Type)': [
+            'SMD2835 high efficiency', 'SMD5050 bright output',
+            'COB integrated', 'CSP chip scale package',
+        ],
+        '光效密度 (Luminosity)': [
+            '120lm/W standard', '140lm/W high efficiency',
+            '160lm/W premium', 'uniform light distribution',
+        ],
+        '亮度色温 (Brightness/CCT)': [
+            '2700K warm white', '4000K neutral white',
+            '5000K daylight white', '3000K-6500K tunable', 'CRI>80 standard',
+        ],
+        '光学设计 (Optics)': [
+            '120° wide beam angle', '90° focused beam',
+            'anti-glare design', 'PC diffuser soft light',
+        ],
+        '结构安装 (Structure/Mount)': [
+            'surface mounted easy install', 'suspended hanging kit',
+            'recessed ceiling flush', 'wall bracket adjustable',
+        ],
+        '封装工艺 (Encapsulation)': [
+            'aluminum alloy housing', 'die-cast aluminum heat sink',
+            'PC cover flame retardant V0', 'modular design easy maintenance',
+        ],
+        '认证合规 (Certifications)': [
+            'CE RoHS certified', 'FCC approved',
+            'UL/DLC listed', 'TUV SGS verified',
+        ],
+        '包装物流 (Packaging/Logistics)': [
+            'individual box packaging', 'foam protection shipping',
+            'neutral packing OEM', 'carton pallet export',
+        ],
+        '场景应用 (Applications)': [
+            'warehouse industrial', 'commercial retail',
+            'office institutional', 'outdoor area',
+        ],
+        '服务保障 (Service/Warranty)': [
+            '5 years warranty', 'free spare parts',
+            '24/7 technical support', 'fast delivery 7-15 days', 'OEM ODM custom',
+        ],
+    }
+    
+    sp_categories = SP_DB.get(best_type, SP_GENERIC)
+    
+    selling_points = {}
+    total_sp = 0
+    for sp_name, sp_list in sp_categories.items():
+        # Cap per category: first 8 categories get 4 each, last 4 get 4-5 each
+        # This ensures all 12 categories are included before hitting 50
+        cap = 4
+        selected = [s for s in sp_list if s and len(s) > 3][:cap]
+        if selected:
+            selling_points[sp_name] = selected
+            total_sp += len(selected)
+    # If we have room for more, expand categories that have more items
+    if total_sp < 50:
+        for sp_name, sp_list in sp_categories.items():
+            if sp_name in selling_points and len(sp_list) > len(selling_points[sp_name]):
+                extra = [s for s in sp_list if s and len(s) > 3 and s not in selling_points[sp_name]]
+                can_add = min(len(extra), 50 - total_sp)
+                if can_add > 0:
+                    selling_points[sp_name].extend(extra[:can_add])
+                    total_sp += can_add
+    
+    return {
+        'roots': roots,
+        'keywords': keywords,
+        'tags': tags,
+        'selling_points': selling_points,
+        'primary_categories': primary_cats,
+        'product_type': best_type or 'generic',
+    }
+
 # === Sitemap Parser ===
 def parse_sitemap(url):
     xml, status = fetch(url)
@@ -1232,6 +1868,13 @@ def main():
                 for key in ['core_product', 'specifications', 'applications', 'longtail_buyer']:
                     b2b_summary[key]['score'] = round(b2b_summary[key]['score'] / len(product_pages), 1)
                 site_data['category_b2b_summary'] = b2b_summary
+                
+                # Generate backend keyword system based on top 2 categories
+                top_2_cats = b2b_summary.get('top_categories', [])[:2]
+                prod_titles = [pp.get('title', {}).get('text', '') for pp in product_pages if pp.get('title', {}).get('text')]
+                kw_system = generate_backend_keyword_system(top_2_cats, product_titles=prod_titles)
+                site_data['backend_keyword_system'] = kw_system
+                print(f'[CRAWL]   Backend keyword system generated: {len(kw_system["roots"])} roots, {len(kw_system["keywords"])} keywords, {len(kw_system["tags"])} tags, {sum(len(v) for v in kw_system["selling_points"].values())} selling points', file=sys.stderr)
 
         # Remove raw_html from final output (too large)
         if 'raw_html' in site_data:
