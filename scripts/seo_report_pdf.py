@@ -247,12 +247,14 @@ def generate_paa_examples(product):
 
 
 def calc_scores(site):
-    """Calculate scores based on homepage + product pages data."""
+    """Calculate scores based on homepage + product pages data.
+    v3.0: Enhanced scoring with finer granularity, structure checks, and GEO expansion.
+    """
     s = {}
     sub_pages = site.get('sub_pages', [])
     product_pages = [sp for sp in sub_pages if sp.get('page_type') == 'product']
+    n_prod = len(product_pages)
     
-    # Helper function to calculate product page average score for a dimension
     def product_avg_score(dimension_func, pages):
         if not pages:
             return 0
@@ -260,150 +262,379 @@ def calc_scores(site):
         return sum(scores) / len(scores) if scores else 0
     
     # === Title quality ===
-    # Homepage score
+    # Fine-grained scoring: considers length, keyword presence, brand name
     def title_score_page(page):
         t = page.get('title', {})
         tl = t.get('length', 0)
         tt = t.get('text', '')
-        if 60 <= tl <= 80 and ' ' in tt: return 9
-        elif 50 <= tl <= 85 and ' ' in tt: return 7
-        elif tl > 0: return 5
-        else: return 0
+        
+        # Base score from length
+        if tl == 0:
+            return 0
+        elif 60 <= tl <= 80:
+            base = 9
+        elif 50 <= tl < 60:
+            base = 7
+        elif 80 < tl <= 90:
+            base = 7
+        elif 30 <= tl < 50:
+            base = 5
+        elif 90 < tl <= 120:
+            base = 5
+        elif tl < 30:
+            base = 3
+        else:  # > 120
+            base = 3
+        
+        # Bonus: contains space (multi-word, not just one keyword)
+        if ' ' not in tt:
+            base -= 1
+        
+        # Penalty: duplicate-looking title (all same or too short keywords)
+        if tl > 0 and len(tt.split()) < 3:
+            base -= 1
+        
+        return max(0, min(10, base))
     
     home_title = title_score_page(site)
     prod_title_avg = product_avg_score(title_score_page, product_pages)
-    # Combined: homepage 30%, product pages 70% (product pages more important)
-    s['title'] = round(home_title * 0.3 + prod_title_avg * 0.7, 1) if product_pages else home_title
+    s['title'] = round(home_title * 0.3 + prod_title_avg * 0.7, 1) if n_prod else home_title
     
     # === Meta Description ===
+    # Fine-grained scoring: considers length, CTA signals, keyword density
     def desc_score_page(page):
         d = page.get('meta_description', {})
         dl = d.get('length', 0)
-        if 120 <= dl <= 160: return 8
-        elif 100 <= dl <= 170: return 7
-        elif dl > 0: return 5
-        else: return 0
+        dt = d.get('text', '')
+        
+        # Base score from length
+        if dl == 0:
+            return 0
+        elif 150 <= dl <= 160:
+            base = 9  # Optimal length
+        elif 120 <= dl < 150:
+            base = 8
+        elif 160 < dl <= 170:
+            base = 7
+        elif 100 <= dl < 120:
+            base = 6
+        elif 170 < dl <= 200:
+            base = 6
+        elif 70 <= dl < 100:
+            base = 4
+        elif 200 < dl <= 300:
+            base = 4
+        elif dl < 70:
+            base = 2
+        else:  # > 300
+            base = 2
+        
+        # Bonus: contains CTA signals
+        cta_words = ['contact', 'learn more', 'discover', 'shop', 'get', 'find', 'explore', 'request', 'free', 'today']
+        if any(w in dt.lower() for w in cta_words):
+            base += 1
+        
+        return max(0, min(10, base))
     
     home_desc = desc_score_page(site)
     prod_desc_avg = product_avg_score(desc_score_page, product_pages)
-    s['desc'] = round(home_desc * 0.3 + prod_desc_avg * 0.7, 1) if product_pages else home_desc
+    s['desc'] = round(home_desc * 0.3 + prod_desc_avg * 0.7, 1) if n_prod else home_desc
     
     # === H1/H2 Structure ===
+    # Enhanced: penalize excessive H2, check H1 content quality
     def h12_score_page(page):
-        h1c, h2c = page.get('h1_count', 0), page.get('h2_count', 0)
-        if h1c == 1 and h2c >= 3: return 8
-        elif h1c == 1 and h2c > 0: return 7
-        elif h1c > 0: return 5
-        else: return 2
+        h1c = page.get('h1_count', 0)
+        h2c = page.get('h2_count', 0)
+        
+        # H1 scoring
+        if h1c == 0:
+            h1_score = 0
+        elif h1c == 1:
+            h1_score = 5
+        elif h1c == 2:
+            h1_score = 3
+        else:  # > 2 H1s
+            h1_score = 1
+        
+        # H2 scoring with anomaly detection
+        if h2c == 0:
+            h2_score = 0
+        elif 2 <= h2c <= 10:
+            h2_score = 5  # Normal range
+        elif 11 <= h2c <= 20:
+            h2_score = 4  # Slightly excessive
+        elif h2c == 1:
+            h2_score = 3  # Only 1 H2 is insufficient
+        elif 21 <= h2c <= 30:
+            h2_score = 3  # Excessive, likely structural issue
+        else:  # > 30
+            h2_score = 2  # Severe excess, likely auto-generated
+        
+        return min(10, h1_score + h2_score)
     
     home_h12 = h12_score_page(site)
     prod_h12_avg = product_avg_score(h12_score_page, product_pages)
-    s['h12'] = round(home_h12 * 0.3 + prod_h12_avg * 0.7, 1) if product_pages else home_h12
+    s['h12'] = round(home_h12 * 0.3 + prod_h12_avg * 0.7, 1) if n_prod else home_h12
     
     # === Image Alt Coverage ===
+    # Enhanced: consider alt text quality (not just existence)
     def alt_score_page(page):
         imgs = page.get('images', {})
-        return min(10, max(0, round(imgs.get('coverage_pct', 0) / 10)))
+        pct = imgs.get('coverage_pct', 0)
+        total = imgs.get('total', 0)
+        alt_texts = imgs.get('alt_texts', [])
+        
+        if total == 0:
+            return 5  # No images = neutral
+        
+        # Base from coverage
+        if pct >= 95:
+            base = 9
+        elif pct >= 80:
+            base = 8
+        elif pct >= 60:
+            base = 6
+        elif pct >= 40:
+            base = 4
+        elif pct >= 20:
+            base = 2
+        else:
+            base = 1
+        
+        # Penalty: generic alt texts (just filenames or single words)
+        if alt_texts:
+            generic_count = sum(1 for a in alt_texts if len(a.split()) <= 1 or a.lower().endswith(('.jpg', '.png', '.gif', '.webp')))
+            generic_pct = generic_count / len(alt_texts) * 100
+            if generic_pct > 50:
+                base -= 2
+            elif generic_pct > 30:
+                base -= 1
+        
+        return max(0, min(10, base))
     
     home_alt = alt_score_page(site)
     prod_alt_avg = product_avg_score(alt_score_page, product_pages)
-    s['alt'] = round(home_alt * 0.3 + prod_alt_avg * 0.7, 1) if product_pages else home_alt
+    s['alt'] = round(home_alt * 0.3 + prod_alt_avg * 0.7, 1) if n_prod else home_alt
     
-    # === hreflang (site-level, keep as is) ===
+    # === hreflang ===
+    # Enhanced: also check product page html_lang consistency
     hl = site.get('hreflang', {})
     ml = site.get('multilang', [])
     html_lang = hl.get('html_lang', '')
     ml_count = len(ml)
-    if html_lang and ml_count >= 5: s['hreflang'] = 9
-    elif html_lang and ml_count >= 3: s['hreflang'] = 8
-    elif html_lang and ml_count >= 1: s['hreflang'] = 6
-    elif not html_lang and ml_count >= 5: s['hreflang'] = 5
-    elif not html_lang and ml_count >= 3: s['hreflang'] = 4
-    elif not html_lang and ml_count >= 1: s['hreflang'] = 2
-    else: s['hreflang'] = 0
+    
+    # Check product page html_lang consistency
+    prod_lang_ok = 0
+    if n_prod and html_lang:
+        prod_lang_ok = sum(1 for pp in product_pages if pp.get('hreflang', {}).get('html_lang', '') == html_lang)
+    lang_consistency = prod_lang_ok / n_prod if n_prod and html_lang else 0
+    
+    # Base scoring
+    if html_lang and ml_count >= 5:
+        base = 9
+    elif html_lang and ml_count >= 3:
+        base = 8
+    elif html_lang and ml_count >= 1:
+        base = 6
+    elif not html_lang and ml_count >= 5:
+        base = 5
+    elif not html_lang and ml_count >= 3:
+        base = 4
+    elif not html_lang and ml_count >= 1:
+        base = 2
+    else:
+        base = 0
+    
+    # Penalty: inconsistent html_lang across pages
+    if html_lang and n_prod and lang_consistency < 0.5:
+        base -= 1
+    
+    s['hreflang'] = max(0, min(10, base))
     
     # === Open Graph ===
+    # Enhanced: check OG completeness with product page coverage
     def og_score_page(page):
         og = page.get('og', {})
-        return min(10, round(sum(1 for k in ['title','description','image','type'] if og.get(k)) * 2.5))
+        core_keys = ['title', 'description', 'image', 'type']
+        bonus_keys = ['url', 'site_name']
+        core_count = sum(1 for k in core_keys if og.get(k))
+        bonus_count = sum(1 for k in bonus_keys if og.get(k))
+        
+        if core_count == 4:
+            base = 8
+        elif core_count == 3:
+            base = 6
+        elif core_count == 2:
+            base = 4
+        elif core_count == 1:
+            base = 2
+        else:
+            base = 0
+        
+        base += min(2, bonus_count)  # Bonus for url/site_name
+        return min(10, base)
     
     home_og = og_score_page(site)
     prod_og_avg = product_avg_score(og_score_page, product_pages)
-    s['og'] = round(home_og * 0.5 + prod_og_avg * 0.5, 1) if product_pages else home_og
+    s['og'] = round(home_og * 0.5 + prod_og_avg * 0.5, 1) if n_prod else home_og
     
-    # === Sitemap (site-level, keep as is) ===
+    # === Sitemap ===
+    # Enhanced: check URL count ratio and lastmod freshness
     sm = site.get('sitemap', {})
-    if sm.get('exists') and sm.get('url_count', 0) > 0: s['sitemap'] = 8
-    elif sm.get('exists'): s['sitemap'] = 5
-    else: s['sitemap'] = 0
+    if not sm.get('exists'):
+        s['sitemap'] = 0
+    else:
+        url_count = sm.get('url_count', 0)
+        with_lastmod = sm.get('with_lastmod', 0)
+        
+        if url_count > 0 and with_lastmod > 0:
+            base = 9
+        elif url_count > 0:
+            base = 7
+        else:
+            base = 4
+        
+        # Bonus: sitemap has image/video extensions
+        if sm.get('image_entries', 0) > 0:
+            base += 1
+        if sm.get('sitemap_hreflang_count', 0) > 0:
+            base += 1
+        
+        s['sitemap'] = min(10, base)
     
-    # === Social sharing (site-level, keep as is) ===
+    # === Social sharing ===
+    # Keep site-level (social links are usually in header/footer)
     sl = site.get('social_links', {})
     has_social = sl.get('has_social', False)
     platforms = sl.get('detected_platforms', [])
-    if has_social and len(platforms) >= 2: s['social'] = 9
-    elif has_social: s['social'] = 7
-    else: s['social'] = 0
+    if has_social and len(platforms) >= 3:
+        s['social'] = 9
+    elif has_social and len(platforms) >= 2:
+        s['social'] = 8
+    elif has_social:
+        s['social'] = 6
+    else:
+        s['social'] = 0
     
     # === Technical Security ===
+    # Enhanced: check product pages for generator leaks, mixed content
     def security_score_page(page):
-        sec = 8
-        if not page.get('https', True): sec -= 4
-        if page.get('generator'): sec -= 2
-        if page.get('noindex'): sec -= 3
+        sec = 9  # Start from 9
+        
+        # HTTPS check (critical)
+        if not page.get('https', True):
+            sec -= 5
+        
+        # Generator leak (moderate)
+        gen = page.get('generator', '')
+        if gen:
+            sec -= 2
+            # Extra penalty if version number exposed
+            if re.search(r'\d+\.\d+', gen):
+                sec -= 1
+        
+        # Noindex misuse (severe for non-admin pages)
+        if page.get('noindex'):
+            sec -= 3
+        
+        # Check for mixed content hints
+        canonical = page.get('canonical', '')
+        if canonical and canonical.startswith('http://'):
+            sec -= 2
+        
         return max(0, min(10, sec))
     
     home_sec = security_score_page(site)
     prod_sec_avg = product_avg_score(security_score_page, product_pages)
-    s['security'] = round(home_sec * 0.5 + prod_sec_avg * 0.5, 1) if product_pages else home_sec
+    s['security'] = round(home_sec * 0.5 + prod_sec_avg * 0.5, 1) if n_prod else home_sec
     
-    # === GEO/AI Structure ===
-    GEO_TYPES = {'FAQPage', 'HowTo', 'Organization', 'NewsArticle'}
+    # === GEO/AI Structure + Content ===
+    # Expanded: Product/BreadcrumbList/ImageObject also count as valuable schema
+    CORE_GEO_TYPES = {'FAQPage', 'HowTo', 'Organization', 'NewsArticle'}
+    SUPPORTING_SCHEMA = {'Product', 'BreadcrumbList', 'ImageObject', 'Article', 'WebPage', 'LocalBusiness'}
     
     def geo_struct_score_page(page):
         jld_types = page.get('jsonld', {}).get('types', [])
-        matched = [t for t in jld_types if t in GEO_TYPES]
+        
+        # Core GEO types (high value for AI search)
+        core_matched = [t for t in jld_types if t in CORE_GEO_TYPES]
+        
         # Check about page for Organization
-        if 'about' in page.get('url', '').lower() and 'Organization' not in matched:
-            matched.append('Organization')
+        if 'about' in page.get('url', '').lower() and 'Organization' not in core_matched:
+            core_matched.append('Organization')
         # Check FAQ/HowTo blocks
-        if page.get('faq_block_count', 0) > 0 and 'FAQPage' not in matched:
-            matched.append('FAQPage')
-        if page.get('howto_block_count', 0) > 0 and 'HowTo' not in matched:
-            matched.append('HowTo')
-        nc = len(matched)
-        if nc >= 4: return 9
-        elif nc >= 3: return 8
-        elif nc >= 2: return 6
-        elif nc >= 1: return 4
-        else: return 0
+        if page.get('faq_block_count', 0) > 0 and 'FAQPage' not in core_matched:
+            core_matched.append('FAQPage')
+        if page.get('howto_block_count', 0) > 0 and 'HowTo' not in core_matched:
+            core_matched.append('HowTo')
+        
+        core_count = len(core_matched)
+        
+        # Supporting schema (moderate value)
+        support_matched = [t for t in jld_types if t in SUPPORTING_SCHEMA]
+        support_count = len(support_matched)
+        
+        # Score: core types have higher weight
+        # Max from core: 6 points (4 types * 1.5)
+        # Max from support: 4 points (3+ types * ~1.3)
+        core_score = min(6, core_count * 1.5)
+        support_score = min(4, support_count * 1.3)
+        
+        return min(10, round(core_score + support_score, 1))
     
     def geo_content_score_page(page):
         wc = page.get('word_count', 0)
         faq = page.get('faq_block_count', 0)
         howto = page.get('howto_block_count', 0)
-        gc = (5 if wc > 2000 else 3 if wc > 1000 else 2 if wc > 500 else 1 if wc > 0 else 0) + min(5, faq*2 + howto*2)
-        return min(10, gc)
+        
+        # Word count scoring (content depth for AI)
+        if wc > 2000:
+            wc_score = 5
+        elif wc > 1000:
+            wc_score = 4
+        elif wc > 500:
+            wc_score = 3
+        elif wc > 200:
+            wc_score = 2
+        elif wc > 0:
+            wc_score = 1
+        else:
+            wc_score = 0
+        
+        # FAQ/HowTo content value
+        faq_howto_score = min(5, faq * 2 + howto * 2)
+        
+        return min(10, wc_score + faq_howto_score)
     
     def geo_score_page(page):
         struct = geo_struct_score_page(page)
         content = geo_content_score_page(page)
-        return round(struct * 0.5 + content * 0.5, 1)
+        return round(struct * 0.6 + content * 0.4, 1)
     
     home_geo = geo_score_page(site)
     prod_geo_avg = product_avg_score(geo_score_page, product_pages)
-    s['geo'] = round(home_geo * 0.3 + prod_geo_avg * 0.7, 1) if product_pages else home_geo
+    s['geo'] = round(home_geo * 0.3 + prod_geo_avg * 0.7, 1) if n_prod else home_geo
     
-    # === B2B Keywords (use category_b2b_summary if available) ===
+    # === B2B Keywords ===
+    # Use category_b2b_summary (aggregated from product pages) if available
     b2b = site.get('category_b2b_summary', site.get('b2b_keywords', {}))
     cp = b2b.get('core_product', {}).get('score', 0)
-    sp = b2b.get('specifications', {}).get('score', 0)
+    sp_val = b2b.get('specifications', {}).get('score', 0)
     ap = b2b.get('applications', {}).get('score', 0)
     lp = b2b.get('longtail_buyer', {}).get('score', 0)
-    ts = b2b.get('core_product', {}).get('signal_count', 0) + b2b.get('specifications', {}).get('signal_count', 0) + b2b.get('applications', {}).get('signal_count', 0) + b2b.get('longtail_buyer', {}).get('signal_count', 0)
+    
+    # Total signals across all sub-dimensions
+    ts = (b2b.get('core_product', {}).get('signal_count', 0) +
+          b2b.get('specifications', {}).get('signal_count', 0) +
+          b2b.get('applications', {}).get('signal_count', 0) +
+          b2b.get('longtail_buyer', {}).get('signal_count', 0))
+    
+    # Signal density bonus: signals per 500 words
     wc = site.get('word_count', 0)
-    bs = cp*0.30 + sp*0.25 + ap*0.20 + lp*0.25 + min(2, ts/max(1,wc)*500 if wc > 0 else 0)
-    s['b2b'] = min(10, max(0, round(bs)))
+    density_bonus = min(2, ts / max(1, wc) * 500) if wc > 0 else 0
+    
+    bs = cp * 0.30 + sp_val * 0.25 + ap * 0.20 + lp * 0.25 + density_bonus
+    s['b2b'] = min(10, max(0, round(bs, 1)))
     
     return s
 
