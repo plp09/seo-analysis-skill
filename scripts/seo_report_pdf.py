@@ -877,11 +877,14 @@ def on_page(canvas, doc):
 
 def on_cover(canvas, doc):
     canvas.saveState()
-    canvas.setFillColor(colors.HexColor('#1C2833'))
+    # 封面背景：深蓝渐变层，与主题蓝 #2D5F8A 统一色系
+    canvas.setFillColor(colors.HexColor('#1A3A5C'))
     canvas.rect(0, 0, PAGE_W, PAGE_H, fill=True, stroke=False)
+    # 中部装饰线：主题蓝 PRIMARY
     canvas.setFillColor(PRIMARY)
     canvas.rect(0, PAGE_H * 0.35, PAGE_W, 3*mm, fill=True, stroke=False)
-    canvas.setFillColor(colors.HexColor('#243B55'))
+    # 底部深色条：更深的蓝
+    canvas.setFillColor(colors.HexColor('#15314E'))
     canvas.rect(0, 0, PAGE_W, 15*mm, fill=True, stroke=False)
     canvas.restoreState()
 
@@ -1352,7 +1355,7 @@ def generate(data, output_path, title=None):
         '投入少见效快；P2 为计划修复，需一定开发资源；P3 为持续优化，可随网站迭代推进。',
         ss['Body']))
 
-    doc.build(el)
+    doc.build(el, onFirstPage=on_cover)
     return output_path
 
 def main():
