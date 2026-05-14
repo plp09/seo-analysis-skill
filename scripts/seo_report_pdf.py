@@ -995,17 +995,19 @@ def generate(data, output_path, title=None):
     # 产品页图片 Alt 统计
     product_pages = [sp for sp in site.get('sub_pages', []) if sp.get('page_type') == 'product']
     if product_pages:
-        alt_coverages = [sp.get('images', {}).get('coverage_pct', 0) for sp in product_pages]
-        alt_good = sum(1 for c in alt_coverages if c >= 90)
-        alt_avg = sum(alt_coverages) / len(alt_coverages) if alt_coverages else 0
+        total = sum(sp.get('images', {}).get('total', 0) for sp in product_pages)
+        with_alt = sum(sp.get('images', {}).get('with_alt', 0) for sp in product_pages)
+        missing = total - with_alt
+        missing_rate = missing / total * 100 if total else 0
+        alt_avg = missing_rate  # flip: missing rate instead of coverage
         
         el.append(Spacer(1, 3*mm))
         el.append(Paragraph(f'<b>产品页图片 Alt 统计（{len(product_pages)} 页）</b>', ss['Body']))
         el.append(make_table(
             ['指标', '数值', '评估'],
             [
-                ['产品页 Alt 平均覆盖率', f'{alt_avg:.1f}%', '优秀' if alt_avg >= 90 else '需改进'],
-                ['Alt 优秀率（≥90%）', f'{alt_good}/{len(product_pages)} ({alt_good/len(product_pages)*100:.0f}%)', '优秀' if alt_good/len(product_pages) >= 0.8 else '需改进'],
+                ['产品页 Alt 平均缺失率', f'{alt_avg:.0f}%', '优秀' if alt_avg <= 10 else '需改进'],
+                ['Alt 缺失率', f'{missing}/{total} ({missing_rate:.0f}%)', '优秀' if missing_rate <= 10 else '需改进'],
             ], ss, cw=[0.40, 0.30, 0.30]))
 
     # ─── 5. 多语言 ───────────────────────────────────────────────
