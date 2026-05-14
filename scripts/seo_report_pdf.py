@@ -202,9 +202,9 @@ def generate_category_keywords(category, base_url):
     Key design principles:
     - Only for user-provided/confirmed category words
     - All keywords target EU/US B2B buyer search habits
-    - Each keyword phrase consists of 3-4 words (how professional buyers actually search)
+    - Each keyword phrase consists of 2-4 words (how professional buyers actually search)
     - Priority: transaction > specification > scenario > informational
-    - For multi-word categories, use shorter modifiers to stay within 3-4 words
+    - For multi-word categories, use shorter modifiers to stay within 2-4 words
     
     Excludes keywords containing: price, MOQ, sale online, time-specific terms.
     Returns list of (keyword, intent, priority) tuples.
@@ -225,7 +225,7 @@ def generate_category_keywords(category, base_url):
     cat_wc = len(cat.split())
     
     # Build templates dynamically based on category word count
-    # This ensures all resulting keywords are 3-4 words
+    # This ensures all resulting keywords are 2-4 words
     templates = []
     
     # Transaction-intent templates
@@ -303,7 +303,7 @@ def generate_category_keywords(category, base_url):
             ('UL {}', '合规型', '中'),
         ]
 
-    # Generate keywords - only include if 3-4 words
+    # Generate keywords - only include if 2-4 words
     seen = set()
     results = []
     for pattern, intent, priority in templates:
@@ -312,9 +312,9 @@ def generate_category_keywords(category, base_url):
         # Skip if contains excluded words
         if any(ex in kw_lower for ex in exclude_words):
             continue
-        # Only include if exactly 3-4 words
+        # Only include if exactly 2-4 words
         word_count = len(kw.split())
-        if not (3 <= word_count <= 4):
+        if not (2 <= word_count <= 4):
             continue
         if kw_lower not in seen:
             seen.add(kw_lower)
@@ -1252,7 +1252,7 @@ def generate(data, output_path, title=None):
         el.append(Spacer(1, 4*mm))
         el.append(Paragraph('<b>基于网站分类的核心产品关键词推荐：</b>', ss['Label']))
         el.append(Paragraph(
-            '<i>仅分析用户指定/确认的分类词，关键词面向欧美B2B买家搜索习惯，每个词组由3-4个关键词构成</i>',
+            '<i>仅分析用户指定/确认的分类词，关键词面向欧美B2B买家搜索习惯，每个词组由2-4个关键词构成</i>',
             ss['Body']))
         for cat in user_cats:
             # Generate 10-15 recommendations based on the user category name
@@ -1265,7 +1265,7 @@ def generate(data, output_path, title=None):
                 kw_rows.append([kw, intent, priority])
             if kw_rows:
                 el.append(make_table(
-                    ['推荐关键词（3-4词）', '搜索意图', '优先级'],
+                    ['推荐关键词（2-4词）', '搜索意图', '优先级'],
                     kw_rows, ss, cw=[0.40, 0.35, 0.25]))
 
     # ─── 13. PAA 内容检测 ──────────────────────────────────────

@@ -1200,12 +1200,12 @@ def generate_backend_keyword_system(categories, product_pages=None):
         if kw.lower() not in seen_kw:
             keywords.append(kw)
             seen_kw.add(kw.lower())
-    # Each keyword phrase is 3-4 words long, matching how professional buyers search.
+    # Each keyword phrase is 2-4 words long, matching how professional buyers search.
     # Priority: transaction-intent > specification > scenario > informational.
     
     # ── 2. Keywords — 20个 ─────────────────────
     # All keywords target EU/US B2B buyer search habits.
-    # Each keyword phrase is 3-4 words long, matching how professional buyers search.
+    # Each keyword phrase is 2-4 words long, matching how professional buyers search.
     # Priority: transaction-intent > specification > scenario > informational.
     keywords = []
     seen_kw = set()
@@ -1219,14 +1219,14 @@ def generate_backend_keyword_system(categories, product_pages=None):
     base_wc = len(base_root.split())
     
     def safe_kw(*parts):
-        """Build a keyword from parts, return it if 3-4 words, else None."""
+        """Build a keyword from parts, return it if 2-4 words, else None."""
         candidate = ' '.join(parts)
-        return candidate if 3 <= len(candidate.split()) <= 4 else None
+        return candidate if 2 <= len(candidate.split()) <= 4 else None
     
     # Core exact match
     add_kw(base_root)
     
-    # Transaction-intent (3-4 words): buyer sourcing terms
+    # Transaction-intent (2-4 words): buyer sourcing terms
     if base_wc <= 1:
         txn_mods = ['manufacturer', 'wholesale supplier', 'factory price', 'OEM supplier', 'bulk order']
     elif base_wc == 2:
@@ -1238,7 +1238,7 @@ def generate_backend_keyword_system(categories, product_pages=None):
         if kw:
             add_kw(kw)
     
-    # Specification-intent (3-4 words): technical attribute modifiers
+    # Specification-intent (2-4 words): technical attribute modifiers
     spec_attrs = []
     spec_patterns = [
         (r'(\d+\s*lbs?)', 'holding force'),
@@ -1272,7 +1272,7 @@ def generate_backend_keyword_system(categories, product_pages=None):
             if kw:
                 add_kw(kw)
     
-    # Scenario-intent (3-4 words): application context
+    # Scenario-intent (2-4 words): application context
     if base_wc <= 2:
         scenario_mods = ['access control', 'fire door', 'security door', 'emergency exit', 'commercial building']
     else:
@@ -1282,7 +1282,7 @@ def generate_backend_keyword_system(categories, product_pages=None):
         if kw:
             add_kw(kw)
     
-    # B2B transaction long-tail (3-4 words)
+    # B2B transaction long-tail (2-4 words)
     if base_wc <= 2:
         b2b_mods = ['OEM ODM', 'bulk order', 'custom solution']
     else:
@@ -1323,8 +1323,8 @@ def generate_backend_keyword_system(categories, product_pages=None):
         if 3 <= wc <= 4:
             add_kw(kw)
     
-    # Final enforce: all keywords must be 3-4 words
-    keywords = [kw for kw in keywords if 3 <= len(kw.split()) <= 4][:20]
+    # Final enforce: all keywords must be 2-4 words
+    keywords = [kw for kw in keywords if 2 <= len(kw.split()) <= 4][:20]
     
     # ── 3. TAG词 (TAG Keywords) — 3个 ───────────────────────
     tags = []
