@@ -1192,6 +1192,21 @@ def generate_backend_keyword_system(categories, product_pages=None):
     roots = roots[:5]
     
     # ── 2. 关键词 (Main Keywords) — 20个 ─────────────────────
+    # All keywords target EU/US B2B buyer search habits.
+    keywords = []
+    seen_kw = set()
+    
+    def add_kw(kw):
+        if kw.lower() not in seen_kw:
+            keywords.append(kw)
+            seen_kw.add(kw.lower())
+    # Each keyword phrase is 3-4 words long, matching how professional buyers search.
+    # Priority: transaction-intent > specification > scenario > informational.
+    
+    # ── 2. Keywords — 20个 ─────────────────────
+    # All keywords target EU/US B2B buyer search habits.
+    # Each keyword phrase is 3-4 words long, matching how professional buyers search.
+    # Priority: transaction-intent > specification > scenario > informational.
     keywords = []
     seen_kw = set()
     
@@ -1200,72 +1215,116 @@ def generate_backend_keyword_system(categories, product_pages=None):
             keywords.append(kw)
             seen_kw.add(kw.lower())
     
-    # Core exact matches (use top 3 roots)
-    for r in roots[:3]:
-        add_kw(r)
+    base_root = roots[0]
+    base_wc = len(base_root.split())
     
-    # Transaction-intent (manufacturer/supplier/wholesale)
-    for r in roots[:2]:
-        add_kw(f'{r} manufacturer')
-        add_kw(f'{r} supplier China')
-        add_kw(f'{r} wholesale')
+    def safe_kw(*parts):
+        """Build a keyword from parts, return it if 3-4 words, else None."""
+        candidate = ' '.join(parts)
+        return candidate if 3 <= len(candidate.split()) <= 4 else None
     
-    # Attribute-modified
-    if best_type == 'highbay':
-        attrs = ['UFO', 'linear', 'dimmable', 'waterproof IP65', 'DLC listed']
-    elif best_type == 'floodlight':
-        attrs = ['outdoor', 'stadium', 'RGBW', 'dimmable', 'IP66 waterproof']
-    elif best_type == 'streetlight':
-        attrs = ['solar powered', 'smart', 'dimmable', 'IP66', 'DLC listed']
-    elif best_type == 'striplight':
-        attrs = ['RGB', 'COB', 'dimmable', 'waterproof IP65', 'addressable']
-    elif best_type == 'panellight':
-        attrs = ['backlit', 'edge-lit', 'dimmable', 'color tunable', 'emergency']
-    elif best_type == 'tubelight':
-        attrs = ['integrated', 'emergency backup', 'motion sensor', 'vapor tight', 'linkable']
+    # Core exact match
+    add_kw(base_root)
+    
+    # Transaction-intent (3-4 words): buyer sourcing terms
+    if base_wc <= 1:
+        txn_mods = ['manufacturer', 'wholesale supplier', 'factory price', 'OEM supplier', 'bulk order']
+    elif base_wc == 2:
+        txn_mods = ['manufacturer', 'wholesale supplier', 'factory price', 'OEM', 'bulk']
+    else:  # base_wc >= 3
+        txn_mods = ['manufacturer', 'wholesale', 'factory', 'OEM', 'bulk']
+    for mod in txn_mods:
+        kw = safe_kw(base_root, mod)
+        if kw:
+            add_kw(kw)
+    
+    # Specification-intent (3-4 words): technical attribute modifiers
+    spec_attrs = []
+    spec_patterns = [
+        (r'(\d+\s*lbs?)', 'holding force'),
+        (r'(\d+\s*kg)', 'holding force'),
+        (r'(\d+\s*V)', 'voltage'),
+        (r'(fail\s*safe|fail\s*secure)', 'operation mode'),
+        (r'(waterproof|IP\d+)', 'protection'),
+        (r'(stainless\s*steel|zinc\s*alloy|aluminum)', 'material'),
+        (r'(surface\s*mount|mortise|embedded)', 'mounting'),
+        (r'(single\s*door|double\s*door)', 'door type'),
+        (r'(with\s*LED|with\s*timer|with\s*sensor)', 'feature'),
+    ]
+    if prod_text:
+        for pat, label in spec_patterns:
+            m = re.search(pat, prod_text, re.I)
+            if m and len(spec_attrs) < 6:
+                spec_attrs.append(m.group(1).strip())
+    if not spec_attrs:
+        if base_wc <= 2:
+            spec_attrs = ['fail safe', 'surface mount', '12V DC', 'single door', 'CE certified', 'stainless steel']
+        else:
+            spec_attrs = ['fail safe', '12V', 'CE', 'UL', 'IP65']
+    for attr in spec_attrs:
+        # Try prefix first: "fail safe Electromagnetic Lock"
+        kw = safe_kw(attr, base_root)
+        if kw:
+            add_kw(kw)
+        else:
+            # Try suffix: "Electromagnetic Lock fail safe"  
+            kw = safe_kw(base_root, attr)
+            if kw:
+                add_kw(kw)
+    
+    # Scenario-intent (3-4 words): application context
+    if base_wc <= 2:
+        scenario_mods = ['access control', 'fire door', 'security door', 'emergency exit', 'commercial building']
     else:
-        # Generic attrs for non-lighting products - derive from product text
-        attrs = []
-        generic_attr_options = ['waterproof', 'smart', 'bluetooth', 'wifi', 'digital',
-                                'portable', 'handheld', 'professional', 'industrial',
-                                'pocket', 'mini', 'compact', 'USB rechargeable',
-                                'tuya app', 'high precision']
-        for ga in generic_attr_options:
-            if ga.lower() in prod_text and len(attrs) < 5:
-                attrs.append(ga)
-        if not attrs:
-            attrs = ['professional', 'digital', 'portable', 'smart', 'waterproof']
-    for attr in attrs:
-        for r in roots[:2]:
-            add_kw(f'{attr} {r}')
+        scenario_mods = ['access control', 'fire door', 'security', 'commercial']
+    for scene in scenario_mods:
+        kw = safe_kw(base_root, scene)
+        if kw:
+            add_kw(kw)
     
-    # Scenario / long-tail
-    scenes = PTYPES[best_type]['scenes'] if best_type else [
-        'laboratory', 'industrial', 'agriculture', 'aquaculture', 'commercial'
+    # B2B transaction long-tail (3-4 words)
+    if base_wc <= 2:
+        b2b_mods = ['OEM ODM', 'bulk order', 'custom solution']
+    else:
+        b2b_mods = ['OEM', 'bulk', 'custom']
+    for mod in b2b_mods:
+        kw = safe_kw(base_root, mod)
+        if kw:
+            add_kw(kw)
+    
+    # Pad to 20 with additional 3-4 word B2B buyer phrases
+    extra_pool = [
+        f'best {base_root} supplier',
+        f'best {base_root}',
+        f'reliable {base_root} supplier',
+        f'{base_root} delivery',
+        f'{base_root} fast delivery',
+        f'{base_root} warranty',
+        f'professional {base_root}',
+        f'commercial {base_root}',
+        f'industrial {base_root}',
+        f'{base_root} price',
+        f'{base_root} catalog',
+        f'{base_root} supplier',
+        f'{base_root} wholesale',
+        f'{base_root} distributor',
+        f'{base_root} exporter',
+        f'buy {base_root} online',
+        f'buy {base_root}',
+        f'{base_root} quality',
+        f'{base_root} CE certified',
+        f'{base_root} CE',
+        f'{base_root} FCC',
     ]
-    for scene in scenes[:4]:
-        r = roots[0]
-        add_kw(f'{r} for {scene}')
+    for kw in extra_pool:
+        if len(keywords) >= 20:
+            break
+        wc = len(kw.split())
+        if 3 <= wc <= 4:
+            add_kw(kw)
     
-    # B2B transaction long-tail
-    b2b_templates = [
-        f'{roots[0]} OEM ODM', f'{roots[0]} factory direct',
-        f'{roots[0]} bulk order', f'{roots[0]} fast delivery',
-    ]
-    for kw in b2b_templates:
-        add_kw(kw)
-    
-    # Pad to 20
-    extra = [
-        f'best {roots[0]} manufacturer', f'{roots[0]} price list',
-        f'{roots[0]} catalog PDF', f'{roots[0]} user manual',
-        f'professional {roots[0]}', f'{roots[0]} with warranty',
-        f'{roots[0]} CE RoHS certified',
-    ]
-    for kw in extra:
-        add_kw(kw)
-    
-    keywords = keywords[:20]
+    # Final enforce: all keywords must be 3-4 words
+    keywords = [kw for kw in keywords if 3 <= len(kw.split()) <= 4][:20]
     
     # ── 3. TAG词 (TAG Keywords) — 3个 ───────────────────────
     tags = []

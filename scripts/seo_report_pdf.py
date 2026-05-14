@@ -198,7 +198,15 @@ def _render_keyword_system(el, cat_name, kw_sys, ss, make_table):
 
 def generate_category_keywords(category, base_url):
     """Generate 10-15 professional B2B product keywords for a given category.
-    Excludes keywords containing: price, MOQ, sale online, time-specific terms (2024/2025/2026).
+    
+    Key design principles:
+    - Only for user-provided/confirmed category words
+    - All keywords target EU/US B2B buyer search habits
+    - Each keyword phrase consists of 3-4 words (how professional buyers actually search)
+    - Priority: transaction > specification > scenario > informational
+    - For multi-word categories, use shorter modifiers to stay within 3-4 words
+    
+    Excludes keywords containing: price, MOQ, sale online, time-specific terms.
     Returns list of (keyword, intent, priority) tuples.
     """
     cat = category.strip()
@@ -214,53 +222,88 @@ def generate_category_keywords(category, base_url):
     # Exclude patterns: price, MOQ, sale online, year references
     exclude_words = ['price', 'moq', 'sale online', '2024', '2025', '2026', '2027']
 
-    # Keyword templates organized by intent (no price/MOQ/sale online/time)
-    templates = [
-        # (pattern, intent, priority)
-        ('{} manufacturer', '交易型', '高'),
-        ('{} supplier China', '交易型', '高'),
-        ('{} factory direct', '交易型', '高'),
-        ('{} wholesale', '交易型', '高'),
-        ('{} OEM ODM', '交易型', '高'),
-        ('{} custom solution', '交易型', '高'),
-        ('{} specifications', '信息型', '中'),
-        ('{} vs alternatives', '比较型', '中'),
-        ('{} application guide', '信息型', '中'),
-        ('{} installation manual', '信息型', '中'),
-        ('{} quality standards', '信息型', '中'),
-        ('{} certification CE FCC', '信息型', '中'),
-        ('{} for restaurant', '场景型', '高'),
-        ('{} for retail store', '场景型', '高'),
-        ('{} for corporate lobby', '场景型', '高'),
-        ('{} waterproof outdoor', '参数型', '高'),
-        ('{} wall mounted', '参数型', '高'),
-        ('{} freestanding floor', '参数型', '高'),
-        ('{} touchscreen 4K', '参数型', '中'),
-        ('{} built-in Android', '参数型', '中'),
-        ('best {} supplier', '交易型', '高'),
-        ('{} {} review'.format(cat, brand), '评价型', '低'),
-        ('{} solution provider', '交易型', '中'),
-        ('reliable {} manufacturer', '交易型', '高'),
-        ('{} product catalog', '信息型', '中'),
-        ('{} technical support', '服务型', '中'),
-        ('{} warranty policy', '服务型', '中'),
-        ('{} shipping worldwide', '服务型', '中'),
-        ('{} customized design', '定制型', '高'),
-        ('{} bulk order', '交易型', '高'),
-        ('how to install {}', '信息型', '低'),
-        ('{} buyer guide', '信息型', '中'),
-        ('top {} brands comparison', '比较型', '低'),
-        ('commercial {} display', '交易型', '高'),
-        ('{} smart display system', '交易型', '高'),
-    ]
+    cat_wc = len(cat.split())
+    
+    # Build templates dynamically based on category word count
+    # This ensures all resulting keywords are 3-4 words
+    templates = []
+    
+    # Transaction-intent templates
+    if cat_wc <= 1:
+        templates += [
+            ('{} manufacturer supplier', '交易型', '高'),
+            ('{} wholesale supplier', '交易型', '高'),
+            ('{} factory direct', '交易型', '高'),
+            ('{} bulk order', '交易型', '高'),
+            ('{} OEM supplier', '交易型', '高'),
+            ('custom {} supplier', '交易型', '高'),
+            ('{} distributor wanted', '交易型', '中'),
+        ]
+    elif cat_wc == 2:
+        templates += [
+            ('{} manufacturer', '交易型', '高'),
+            ('{} wholesale supplier', '交易型', '高'),
+            ('{} factory direct', '交易型', '高'),
+            ('{} bulk order', '交易型', '高'),
+            ('{} OEM supplier', '交易型', '高'),
+            ('custom {} supplier', '交易型', '高'),
+            ('{} distributor', '交易型', '中'),
+        ]
+    else:  # cat_wc >= 3
+        templates += [
+            ('{} manufacturer', '交易型', '高'),
+            ('{} wholesale', '交易型', '高'),
+            ('{} factory', '交易型', '高'),
+            ('{} bulk', '交易型', '高'),
+            ('{} OEM', '交易型', '高'),
+            ('custom {}', '交易型', '高'),
+            ('{} distributor', '交易型', '中'),
+        ]
+    
+    # Specification-intent templates
+    if cat_wc <= 2:
+        templates += [
+            ('commercial grade {}', '参数型', '高'),
+            ('industrial {} system', '参数型', '高'),
+            ('heavy duty {}', '参数型', '中'),
+            ('stainless steel {}', '参数型', '高'),
+        ]
+    else:  # cat_wc >= 3
+        templates += [
+            ('commercial {}', '参数型', '高'),
+            ('industrial {}', '参数型', '高'),
+            ('heavy {}', '参数型', '中'),
+            ('CE {}', '参数型', '高'),
+        ]
+    
+    # Scenario-intent templates
+    if cat_wc <= 2:
+        templates += [
+            ('{} for access control', '场景型', '高'),
+            ('{} for security door', '场景型', '高'),
+            ('{} for fire door', '场景型', '高'),
+            ('{} for commercial', '场景型', '中'),
+        ]
+    else:  # cat_wc >= 3 - only use 1-word scenario modifiers
+        templates += [
+            ('{} access control', '场景型', '高'),
+            ('{} security door', '场景型', '高'),
+            ('{} fire door', '场景型', '高'),
+        ]
+    
+    # Certification-intent templates
+    if cat_wc <= 2:
+        templates += [
+            ('CE certified {}', '合规型', '高'),
+            ('{} UL listed', '合规型', '中'),
+        ]
+    else:
+        templates += [
+            ('CE {}', '合规型', '高'),
+            ('UL {}', '合规型', '中'),
+        ]
 
-    # Also add category word variations
-    words = cat.split()
-    if len(words) >= 2:
-        templates.append(('{} {}'.format(words[-1], ' '.join(words[:-1])), '信息型', '低'))
-        templates.append(('{} vs {} difference'.format(words[0], words[-1]), '比较型', '低'))
-
-    # Deduplicate, filter excluded words, and limit to 10-15
+    # Generate keywords - only include if 3-4 words
     seen = set()
     results = []
     for pattern, intent, priority in templates:
@@ -269,7 +312,11 @@ def generate_category_keywords(category, base_url):
         # Skip if contains excluded words
         if any(ex in kw_lower for ex in exclude_words):
             continue
-        if kw_lower not in seen and len(kw) > 5:
+        # Only include if exactly 3-4 words
+        word_count = len(kw.split())
+        if not (3 <= word_count <= 4):
+            continue
+        if kw_lower not in seen:
             seen.add(kw_lower)
             results.append((kw, intent, priority))
         if len(results) >= 15:
@@ -1199,13 +1246,16 @@ def generate(data, output_path, title=None):
     # Category-based keyword recommendations (legacy, shown below keyword system)
 
     # Category-based keyword recommendations
-    top_cats = b2b.get('top_categories', [])
-    if top_cats:
+    # Only use user-provided/confirmed categories (not auto-detected top_categories)
+    user_cats = site.get('user_categories', [])
+    if user_cats:
         el.append(Spacer(1, 4*mm))
         el.append(Paragraph('<b>基于网站分类的核心产品关键词推荐：</b>', ss['Label']))
-        # Predefined keyword templates per category
-        for cat in top_cats:
-            # Generate 10-20 recommendations based on the category name
+        el.append(Paragraph(
+            '<i>仅分析用户指定/确认的分类词，关键词面向欧美B2B买家搜索习惯，每个词组由3-4个关键词构成</i>',
+            ss['Body']))
+        for cat in user_cats:
+            # Generate 10-15 recommendations based on the user category name
             recs = generate_category_keywords(cat, site.get('base_url', ''))
             el.append(Spacer(1, 2*mm))
             el.append(Paragraph(f'<b>【{cat}】</b>', ss['Body']))
@@ -1215,7 +1265,7 @@ def generate(data, output_path, title=None):
                 kw_rows.append([kw, intent, priority])
             if kw_rows:
                 el.append(make_table(
-                    ['推荐关键词', '搜索意图', '优先级'],
+                    ['推荐关键词（3-4词）', '搜索意图', '优先级'],
                     kw_rows, ss, cw=[0.40, 0.35, 0.25]))
 
     # ─── 13. PAA 内容检测 ──────────────────────────────────────
