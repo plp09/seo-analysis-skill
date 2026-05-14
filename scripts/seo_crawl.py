@@ -1929,13 +1929,22 @@ def main():
     urls = []
     extra_pages = ['/about/', '/about-us/', '/aboutus.html', '/products/', '/services/', '/blog/']
     user_categories = []
-    for arg in sys.argv[1:]:
-        if arg.startswith('--pages='):
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg in ('--pages',) and i + 1 < len(sys.argv):
+            i += 1
+            extra_pages = [p if p.startswith('/') else f'/{p}' for p in sys.argv[i].split(',')]
+        elif arg in ('--categories',) and i + 1 < len(sys.argv):
+            i += 1
+            user_categories = [c.strip() for c in sys.argv[i].split(',') if c.strip()]
+        elif arg.startswith('--pages='):
             extra_pages = [p if p.startswith('/') else f'/{p}' for p in arg[8:].split(',')]
         elif arg.startswith('--categories='):
             user_categories = [c.strip() for c in arg[13:].split(',') if c.strip()]
         elif arg.startswith('http'):
             urls.append(arg)
+        i += 1
 
     if not urls:
         print(json.dumps({'error': 'No valid URL provided'}, indent=2))
