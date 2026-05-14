@@ -784,27 +784,11 @@ DIMS = [
 
 
 def overall(scores):
-    struct_dims = ['title','desc','h12','alt','hreflang','og','sitemap','social','security']
-    sw, st = 0.0, 0.0
+    t, tw = 0, 0
     for k, _, w in DIMS:
-        if k in struct_dims:
-            st += scores.get(k, 0) * w
-            sw += w
-    structure_score = round(st / sw, 1) if sw else 0
-
-    cont_dims = ['geo', 'b2b', 'paa']
-    cw, ct = 0.0, 0.0
-    for k, _, w in DIMS:
-        if k in cont_dims:
-            ct += scores.get(k, 0) * w
-            cw += w
-    content_score = round(ct / cw, 1) if cw else 0
-
-    scores['structure'] = structure_score
-    scores['content'] = content_score
-
-    t = structure_score * 6 + content_score * 4
-    return round(t / 10, 1)
+        t += scores.get(k, 0) * w
+        tw += w
+    return round(t / tw, 1) if tw else 0
 
 
 def on_page(canvas, doc):
@@ -849,7 +833,7 @@ def generate(data, output_path, title=None):
 
     el = []
 
-    # ─── 封面
+    # ─── 封面 ─────────────────────────────────────────────────────
     el.append(Spacer(1, 55*mm))
     el.append(Paragraph(title, ss['CoverTitle']))
     el.append(Paragraph(domain, ss['CoverSub']))
@@ -857,80 +841,55 @@ def generate(data, output_path, title=None):
     el.append(HRFlowable(width='40%', thickness=1, color=colors.HexColor('#5DADE2'),
                          hAlign='CENTER'))
     el.append(Spacer(1, 8*mm))
-    el.append(Paragraph('SEO 技术审计报告', ss['CoverSub']))
+    el.append(Paragraph('13维度 SEO 技术审计', ss['CoverSub']))
+    el.append(Paragraph('GEO/AI SEO + B2B外贸关键词深度分析', ss['CoverSub']))
     el.append(Spacer(1, 25*mm))
     el.append(Paragraph(date_str, ss['CoverDate']))
     el.append(PageBreak())
 
-    # ─── 目录
+    # ─── 目录 ─────────────────────────────────────────────────────
     chs = [
-        '一、综合评分概览',
-        '二、网站结构评分',
-        '    1. 基础元数据分析',
-        '    2. 标题结构分析',
-        '    3. 图片优化分析',
-        '    4. 多语言与国际化',
-        '    5. Open Graph 与社交分享',
-        '    6. Sitemap 质量',
-        '    7. 技术安全与清洁度',
-        '三、内容体量评估',
-        '    1. GEO/AI 内容与结构',
-        '    2. B2B外贸买家关键词覆盖',
-        '    3. 页面级 PAA 内容检测',
-        '四、综合结论',
-        '五、修复优先级方案',
+        '综合评分概览', '基础元数据分析', '标题结构分析', '图片优化分析',
+        '多语言与国际化', 'Open Graph 与社交分享', 'Sitemap 质量',
+        '技术安全与清洁度', '内容体量评估', 'GEO/AI 内容与结构',
+        'B2B外贸买家关键词覆盖', '页面级 PAA 内容检测',
+        '综合结论', '修复优先级方案'
     ]
     el.append(Paragraph('目  录', ss['H1Style']))
     el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=6*mm))
-    for c in chs:
-        el.append(Paragraph(f'<b>{c}</b>', ss['TOC']))
+    for i, c in enumerate(chs, 1):
+        el.append(Paragraph(f'<b>{i}.</b>  {c}', ss['TOC']))
     el.append(PageBreak())
 
-    # ══ 一、综合评分概览 ══
+    # ─── 1. 综合评分 ─────────────────────────────────────────────
     el.append(Paragraph('一、综合评分概览', ss['H1Style']))
     el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
     el.append(Paragraph(f'<font name="{FONT}" size="36" color="{sc(ov).hexval()}">{ov}</font>'
                         f'<font name="{FONT}" size="14"> / 10</font>', ss['BigScore']))
 
-    el.append(make_table(
-        ['评估维度', '得分', '评价'],
-        [
-            ['网站结构评分', f'{scores.get("structure",0)}/10',
-             '优秀' if scores.get('structure',0) >= 8 else '良好' if scores.get('structure',0) >= 6 else '需改进'],
-            ['内容体量评估', f'{scores.get("content",0)}/10',
-             '优秀' if scores.get('content',0) >= 8 else '良好' if scores.get('content',0) >= 6 else '需改进'],
-        ], ss, cw=[0.45, 0.20, 0.35]))
-
-    el.append(Spacer(1, 3*mm))
-    el.append(Paragraph('<b>子维度得分明细</b>', ss['H2Style']))
-    sub_rows = []
+    rows = []
     for k, cn, w in DIMS:
-        if k in ('structure', 'content'):
-            continue
-        sub_rows.append([cn, str(scores.get(k, 0)), status_text(scores.get(k, 0))])
-    el.append(make_table(['审计维度', '得分', '评价'], sub_rows, ss, cw=[0.45, 0.20, 0.35]))
+        rows.append([cn, str(scores.get(k, 0)), status_text(scores.get(k, 0))])
+    el.append(make_table(['审计维度', '得分', '评价'], rows, ss, cw=[0.45, 0.20, 0.35]))
 
-    best_k = max([(k,c,w) for k,c,w in DIMS if k not in ('structure','content')], key=lambda x: scores.get(x[0], 0))
-    worst_k = min([(k,c,w) for k,c,w in DIMS if k not in ('structure','content')], key=lambda x: scores.get(x[0], 0))
+    best_k = max(DIMS, key=lambda x: scores.get(x[0], 0))
+    worst_k = min(DIMS, key=lambda x: scores.get(x[0], 0))
     el.append(Spacer(1, 3*mm))
     el.append(Paragraph(
         f'最强维度：<b>{best_k[1]}</b>（{scores.get(best_k[0],0)}/10）| '
         f'最弱维度：<b>{worst_k[1]}</b>（{scores.get(worst_k[0],0)}/10）',
         ss['CalloutOK'] if scores.get(worst_k[0],0) >= 5 else ss['CalloutWarn']))
 
-    # ══ 二、网站结构评分 ══
-    el.append(PageBreak())
-    el.append(Paragraph('二、网站结构评分', ss['H1Style']))
+    # ─── 2. 基础元数据 ───────────────────────────────────────────
+    el.append(Paragraph('二、基础元数据分析', ss['H1Style']))
     el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
-    el.append(Paragraph(f'<b>网站结构评分：{scores.get("structure",0)}/10</b>', ss['BigScore']))
 
-    # 2.1 基础元数据分析
-    el.append(Paragraph('<b>1. 基础元数据分析</b>', ss['H2Style']))
     t = site.get('title', {})
     d = site.get('meta_description', {})
     mk = site.get('meta_keywords', '未设置')
     canon = site.get('canonical', '未设置')
     lang = site.get('hreflang', {}).get('html_lang', '未设置')
+
     el.append(make_table(
         ['项目', '内容', '评估'],
         [
@@ -940,15 +899,20 @@ def generate(data, output_path, title=None):
             ['Canonical', canon[:50], '正常' if canon != '未设置' else '缺失'],
             ['HTML Lang', lang, '正常' if lang != '未设置' else '缺失'],
         ], ss, cw=[0.18, 0.58, 0.24]))
-
+    
+    # 产品页 Title/Description 统计
     product_pages = [sp for sp in site.get('sub_pages', []) if sp.get('page_type') == 'product']
     if product_pages:
+        # Title 统计
         title_lengths = [sp.get('title', {}).get('length', 0) for sp in product_pages]
         title_good = sum(1 for l in title_lengths if 60 <= l <= 80)
         title_avg = sum(title_lengths) / len(title_lengths) if title_lengths else 0
+        
+        # Description 统计
         desc_lengths = [sp.get('meta_description', {}).get('length', 0) for sp in product_pages]
         desc_good = sum(1 for l in desc_lengths if 150 <= l <= 160)
         desc_avg = sum(desc_lengths) / len(desc_lengths) if desc_lengths else 0
+        
         el.append(Spacer(1, 3*mm))
         el.append(Paragraph(f'<b>产品页元数据统计（{len(product_pages)} 页）</b>', ss['Body']))
         el.append(make_table(
@@ -959,18 +923,25 @@ def generate(data, output_path, title=None):
                 ['产品页 Description 平均长度', f'{desc_avg:.0f} 字符', '合格' if 150 <= desc_avg <= 160 else '需优化'],
                 ['Description 合格率（150-160字符）', f'{desc_good}/{len(product_pages)} ({desc_good/len(product_pages)*100:.0f}%)', '优秀' if desc_good/len(product_pages) >= 0.8 else '需改进'],
             ], ss, cw=[0.40, 0.30, 0.30]))
-
+    
     tl = t.get('length', 0)
     if tl < 60:
         el.append(Spacer(1, 2*mm))
-        el.append(Paragraph('Title 少于60字符，建议扩展至60-80字符区间，包含核心产品词+特性+品牌名，充分利用搜索结果的展示空间提升点击率。', ss['CalloutWarn']))
+        el.append(Paragraph(
+            'Title 少于60字符，建议扩展至60-80字符区间，包含核心产品词+特性+品牌名，'
+            '充分利用搜索结果的展示空间提升点击率。',
+            ss['CalloutWarn']))
     elif tl > 80:
         el.append(Spacer(1, 2*mm))
-        el.append(Paragraph('Title 超过80字符，Google搜索结果中会被截断。建议精简至60-80字符区间，保留核心关键词+品牌名，删除冗余修饰词。', ss['CalloutWarn']))
+        el.append(Paragraph(
+            'Title 超过80字符，Google搜索结果中会被截断。建议精简至60-80字符区间，'
+            '保留核心关键词+品牌名，删除冗余修饰词。',
+            ss['CalloutWarn']))
 
-    # 2.2 标题结构分析
-    el.append(Spacer(1, 4*mm))
-    el.append(Paragraph('<b>2. 标题结构分析</b>', ss['H2Style']))
+    # ─── 3. 标题结构 ─────────────────────────────────────────────
+    el.append(Paragraph('三、标题结构分析', ss['H1Style']))
+    el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
+
     h1s = site.get('headings', {}).get('H1', [])
     h2s = site.get('headings', {}).get('H2', [])
     el.append(make_table(
@@ -982,15 +953,20 @@ def generate(data, output_path, title=None):
     if h1s:
         el.append(Paragraph(f'<b>H1 内容：</b>{html.escape(h1s[0])}', ss['Body']))
     if h2s:
+        # Filter out HTML artifacts (e.g., "--><!--")
         clean_h2s = [h for h in h2s if not h.strip().startswith('-->') and '<' not in h]
         h2p = '、'.join(clean_h2s[:10])
         if len(clean_h2s) > 10: h2p += f'……（共{len(clean_h2s)}个）'
         el.append(Paragraph(f'<b>H2 示例：</b>{html.escape(h2p)}', ss['Body']))
+    
+    # 产品页标题结构统计
+    product_pages = [sp for sp in site.get('sub_pages', []) if sp.get('page_type') == 'product']
     if product_pages:
         h1_counts = [sp.get('h1_count', 0) for sp in product_pages]
         h2_counts = [sp.get('h2_count', 0) for sp in product_pages]
         h1_good = sum(1 for c in h1_counts if c == 1)
         h2_good = sum(1 for c in h2_counts if c >= 3)
+        
         el.append(Spacer(1, 3*mm))
         el.append(Paragraph(f'<b>产品页标题结构统计（{len(product_pages)} 页）</b>', ss['Body']))
         el.append(make_table(
@@ -1002,9 +978,10 @@ def generate(data, output_path, title=None):
                 ['H2 充足率（≥3个）', f'{h2_good}/{len(product_pages)} ({h2_good/len(product_pages)*100:.0f}%)', '优秀' if h2_good/len(product_pages) >= 0.8 else '需改进'],
             ], ss, cw=[0.40, 0.30, 0.30]))
 
-    # 2.3 图片优化分析
-    el.append(Spacer(1, 4*mm))
-    el.append(Paragraph('<b>3. 图片优化分析</b>', ss['H2Style']))
+    # ─── 4. 图片优化 ─────────────────────────────────────────────
+    el.append(Paragraph('四、图片优化分析', ss['H1Style']))
+    el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
+
     imgs = site.get('images', {})
     el.append(make_table(
         ['指标', '数值', '评估'],
@@ -1012,25 +989,31 @@ def generate(data, output_path, title=None):
             ['图片总数', str(imgs.get('total', 0)), '—'],
             ['有 Alt 属性', str(imgs.get('with_alt', 0)), '—'],
             ['无 Alt 属性', str(imgs.get('without_alt', 0)), '需补充' if imgs.get('without_alt',0) > 0 else '完美'],
-            ['Alt 覆盖率', f'{imgs.get("coverage_pct", 0):.1f}%', '优秀' if imgs.get("coverage_pct",0) >= 90 else '需改进'],
+            ['Alt 覆盖率', f'{imgs.get("coverage_pct", 0):.1f}%', '优秀' if imgs.get('coverage_pct',0) >= 90 else '需改进'],
         ], ss, cw=[0.30, 0.30, 0.40]))
+    
+    # 产品页图片 Alt 统计
+    product_pages = [sp for sp in site.get('sub_pages', []) if sp.get('page_type') == 'product']
     if product_pages:
         total = sum(sp.get('images', {}).get('total', 0) for sp in product_pages)
         with_alt = sum(sp.get('images', {}).get('with_alt', 0) for sp in product_pages)
         missing = total - with_alt
         missing_rate = missing / total * 100 if total else 0
+        alt_avg = missing_rate  # flip: missing rate instead of coverage
+        
         el.append(Spacer(1, 3*mm))
         el.append(Paragraph(f'<b>产品页图片 Alt 统计（{len(product_pages)} 页）</b>', ss['Body']))
         el.append(make_table(
             ['指标', '数值', '评估'],
             [
-                ['产品页 Alt 平均缺失率', f'{missing_rate:.0f}%', '优秀' if missing_rate <= 10 else '需改进'],
+                ['产品页 Alt 平均缺失率', f'{alt_avg:.0f}%', '优秀' if alt_avg <= 10 else '需改进'],
                 ['Alt 缺失率', f'{missing}/{total} ({missing_rate:.0f}%)', '优秀' if missing_rate <= 10 else '需改进'],
             ], ss, cw=[0.40, 0.30, 0.30]))
 
-    # 2.4 多语言与国际化
-    el.append(Spacer(1, 4*mm))
-    el.append(Paragraph('<b>4. 多语言与国际化</b>', ss['H2Style']))
+    # ─── 5. 多语言 ───────────────────────────────────────────────
+    el.append(Paragraph('五、多语言与国际化', ss['H1Style']))
+    el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
+
     hl = site.get('hreflang', {})
     ml = site.get('multilang', [])
     ml_langs = [m['lang'] for m in ml] if ml else []
@@ -1041,9 +1024,10 @@ def generate(data, output_path, title=None):
             ['可访问语言路径', ', '.join(ml_langs[:10]) + ('...' if len(ml_langs) > 10 else ''), f'{len(ml_langs)}种'],
         ], ss, cw=[0.25, 0.50, 0.25]))
 
-    # 2.5 Open Graph 与社交分享
-    el.append(Spacer(1, 4*mm))
-    el.append(Paragraph('<b>5. Open Graph 与社交分享</b>', ss['H2Style']))
+    # ─── 6. Open Graph ───────────────────────────────────────────
+    el.append(Paragraph('六、Open Graph 与社交分享', ss['H1Style']))
+    el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
+
     og = site.get('og', {})
     sl = site.get('social_links', {})
     social_rows = [
@@ -1052,13 +1036,21 @@ def generate(data, output_path, title=None):
         ['og:image', '已设置' if og.get('image') else '缺失', '是' if og.get('image') else '否'],
         ['og:type', og.get('type', '缺失'), '是' if og.get('type') else '否'],
     ]
+    # Social media entry links
+    platforms = sl.get('platforms', [])
     detected_names = sl.get('detected_platforms', [])
-    social_rows.append(['社交入口', ', '.join(detected_names) if detected_names else '未检测到', '是' if detected_names else '否'])
-    el.append(make_table(['标签', '内容', '状态'], social_rows, ss, cw=[0.25, 0.50, 0.25]))
+    if detected_names:
+        social_rows.append(['社交入口', ', '.join(detected_names), '是'])
+    else:
+        social_rows.append(['社交入口', '未检测到', '否'])
+    el.append(make_table(
+        ['标签', '内容', '状态'],
+        social_rows, ss, cw=[0.25, 0.50, 0.25]))
 
-    # 2.6 Sitemap 质量
-    el.append(Spacer(1, 4*mm))
-    el.append(Paragraph('<b>6. Sitemap 质量</b>', ss['H2Style']))
+    # ─── 7. Sitemap ──────────────────────────────────────────────
+    el.append(Paragraph('七、Sitemap 质量', ss['H1Style']))
+    el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
+
     sm = site.get('sitemap', {})
     rb = site.get('robots_txt', {})
     el.append(make_table(
@@ -1070,83 +1062,142 @@ def generate(data, output_path, title=None):
             ['noindex 标记', '未检测到' if not site.get('noindex') else '已检测到', '正常' if not site.get('noindex') else '异常'],
         ], ss, cw=[0.30, 0.35, 0.35]))
 
-    # 2.7 技术安全与清洁度
-    el.append(Spacer(1, 4*mm))
-    el.append(Paragraph('<b>7. 技术安全与清洁度</b>', ss['H2Style']))
+    # ─── 8. 技术安全 ─────────────────────────────────────────────
+    el.append(Paragraph('八、技术安全与清洁度', ss['H1Style']))
+    el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
+
     el.append(make_table(
         ['检查项', '结果', '评估'],
         [
-            ['HTTPS 加密', '已启用' if site.get('https') else '未启用', '安全' if site.get('https') else '不安全'],
-            ['Generator 标签', site.get('generator') or '无泄露', '干净' if not site.get('generator') else '有泄露'],
-            ['Robots.txt', '存在' if rb.get('exists') else '缺失', '正常' if rb.get('exists') else '缺失'],
-            ['noindex 标记', '未检测到' if not site.get('noindex') else '已检测到', '正常' if not site.get('noindex') else '警告'],
+            ['HTTPS 加密', '已启用' if site.get('https') else '未启用',
+             '安全' if site.get('https') else '不安全'],
+            ['Generator 标签', site.get('generator') or '无泄露',
+             '干净' if not site.get('generator') else '有泄露'],
+            ['Robots.txt', '存在' if rb.get('exists') else '缺失',
+             '正常' if rb.get('exists') else '缺失'],
+            ['noindex 标记', '未检测到' if not site.get('noindex') else '已检测到',
+             '正常' if not site.get('noindex') else '警告'],
         ], ss, cw=[0.30, 0.35, 0.35]))
 
-    # ══ 三、内容体量评估 ══
-    el.append(PageBreak())
-    el.append(Paragraph('三、内容体量评估', ss['H1Style']))
+    # ─── 9. 内容体量 ─────────────────────────────────────────────
+    el.append(Paragraph('九、内容体量评估', ss['H1Style']))
     el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
-    el.append(Paragraph(f'<b>内容体量评估：{scores.get("content",0)}/10</b>', ss['BigScore']))
 
-    # 3.1 GEO/AI 内容与结构
-    el.append(Paragraph('<b>1. GEO/AI 内容与结构</b>', ss['H2Style']))
+    wc = site.get('word_count', 0)
+    faq = site.get('faq_block_count', 0)
+    howto = site.get('howto_block_count', 0)
+    el.append(make_table(
+        ['指标', '数值', '评估'],
+        [
+            ['首页词数', str(wc), '丰富' if wc > 2000 else '偏薄' if wc < 500 else '适中'],
+            ['FAQ 区块数', str(faq), '良好' if faq > 0 else '缺失'],
+            ['HowTo 区块数', str(howto), '良好' if howto > 0 else '缺失'],
+        ], ss, cw=[0.30, 0.30, 0.40]))
+
+    # ─── 10. GEO/AI 内容与结构 ──────────────────────────────────
+    el.append(Paragraph('十、GEO/AI 内容与结构', ss['H1Style']))
+    el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
+
+    # Structure table - 检测 JSON-LD 和页面内容
     jld_types = site.get('jsonld', {}).get('types', [])
     required = ['FAQPage', 'HowTo', 'Organization', 'NewsArticle']
+    
+    # 检测 about-us 页面是否存在（视为有 Organization 信息）
     sub_pages = site.get('sub_pages', [])
-    has_about_page = any('about' in sp.get('url', '').lower() for sp in sub_pages) if sub_pages else False
+    has_about_page = any(
+        'about' in sp.get('url', '').lower() for sp in sub_pages
+    ) if sub_pages else False
+    
+    # 检测页面内容中的 FAQ/HowTo 区块
     faq_blocks = site.get('faq_block_count', 0)
     howto_blocks = site.get('howto_block_count', 0)
-
+    
+    # 判断逻辑：JSON-LD 或页面内容
     def has_schema(s):
-        if s == 'Organization': return s in jld_types or has_about_page
-        if s == 'FAQPage': return s in jld_types or faq_blocks > 0
-        if s == 'HowTo': return s in jld_types or howto_blocks > 0
+        if s == 'Organization':
+            return s in jld_types or has_about_page
+        if s == 'FAQPage':
+            return s in jld_types or faq_blocks > 0
+        if s == 'HowTo':
+            return s in jld_types or howto_blocks > 0
         return s in jld_types
-
+    
     el.append(make_table(
         ['Schema 类型', '是否检测到', '状态'],
         [[s, '是' if has_schema(s) else '否', '是' if has_schema(s) else '否'] for s in required],
         ss, cw=[0.40, 0.30, 0.30]))
-
+    
+    # Organization 备注
     if has_about_page and 'Organization' not in jld_types:
         el.append(Spacer(1, 2*mm))
-        el.append(Paragraph('Organization：检测到 About Us 页面，视为有公司信息展示。建议进一步添加 Organization JSON-LD 结构化数据，以便 AI 搜索引擎准确理解公司信息。', ss['CalloutOK']))
+        el.append(Paragraph(
+            'Organization：检测到 About Us 页面，视为有公司信息展示。'
+            '建议进一步添加 Organization JSON-LD 结构化数据，以便 AI 搜索引擎准确理解公司信息。',
+            ss['CalloutOK']))
+    
+    # FAQPage 备注
     if faq_blocks > 0 and 'FAQPage' not in jld_types:
         el.append(Spacer(1, 2*mm))
-        el.append(Paragraph(f'FAQPage：检测到 {faq_blocks} 个 FAQ 内容区块，视为有问答式内容。建议进一步添加 FAQPage JSON-LD 结构化数据，提升 AI 搜索引擎引用概率。', ss['CalloutOK']))
+        el.append(Paragraph(
+            f'FAQPage：检测到 {faq_blocks} 个 FAQ 内容区块，视为有问答式内容。'
+            '建议进一步添加 FAQPage JSON-LD 结构化数据，提升 AI 搜索引擎引用概率。',
+            ss['CalloutOK']))
+    
+    # HowTo 备注
     if howto_blocks > 0 and 'HowTo' not in jld_types:
         el.append(Spacer(1, 2*mm))
-        el.append(Paragraph(f'HowTo：检测到 {howto_blocks} 个 HowTo 内容区块，视为有操作指南内容。建议进一步添加 HowTo JSON-LD 结构化数据，提升 AI 搜索引擎引用概率。', ss['CalloutOK']))
+        el.append(Paragraph(
+            f'HowTo：检测到 {howto_blocks} 个 HowTo 内容区块，视为有操作指南内容。'
+            '建议进一步添加 HowTo JSON-LD 结构化数据，提升 AI 搜索引擎引用概率。',
+            ss['CalloutOK']))
 
+    # Content table
     wc = site.get('word_count', 0)
+    faq, howto = faq_blocks, howto_blocks
+    
     el.append(Spacer(1, 3*mm))
     el.append(make_table(
         ['指标', '数值', '评估'],
         [
             ['首页词数', str(wc), '达标' if wc > 2000 else '不足'],
-            ['FAQ 区块（首页）', str(faq_blocks), '良好' if faq_blocks > 0 else '缺失'],
-            ['HowTo 区块（首页）', str(howto_blocks), '良好' if howto_blocks > 0 else '缺失'],
+            ['FAQ 区块（首页）', str(faq), '良好' if faq > 0 else '缺失'],
+            ['HowTo 区块（首页）', str(howto), '良好' if howto > 0 else '缺失'],
         ], ss, cw=[0.40, 0.30, 0.30]))
 
+    # Recommendations - matched 考虑 about-us 页面
     matched = [s for s in required if has_schema(s)]
     if not matched:
         el.append(Spacer(1, 2*mm))
-        el.append(Paragraph('网站完全没有检测到目标结构化数据（FAQPage / HowTo / Organization / NewsArticle）。在 AI 搜索时代，结构化数据是让 AI 理解和引用网站内容的唯一途径。建议优先添加：Organization（公司信息）+ FAQPage（常见问题）。', ss['CalloutDanger']))
-    if faq_blocks == 0 and howto_blocks == 0:
+        el.append(Paragraph(
+            '网站完全没有检测到目标结构化数据（FAQPage / HowTo / Organization / NewsArticle）。'
+            '在 AI 搜索时代（Google SGE、Perplexity、ChatGPT Search），'
+            '结构化数据是让 AI 理解和引用网站内容的唯一途径。'
+            '建议优先添加：Organization（公司信息）+ FAQPage（常见问题）。',
+            ss['CalloutDanger']))
+    if faq == 0 and howto == 0:
         el.append(Spacer(1, 2*mm))
-        el.append(Paragraph('未检测到 FAQ 或 HowTo 结构化内容。这两种格式是 AI 搜索引擎最青睐的内容形式，直接影响 AI 摘要引用概率。建议添加常见问题页面，涵盖：订货流程、交货时间、MOQ、OEM 定制、保修政策、产品认证等买家核心问题。', ss['CalloutWarn']))
+        el.append(Paragraph(
+            '未检测到 FAQ 或 HowTo 结构化内容。这两种格式是 AI 搜索引擎最青睐的内容形式，'
+            '直接影响 AI 摘要引用概率。建议添加常见问题页面，涵盖：订货流程、交货时间、'
+            'MOQ、OEM 定制、保修政策、产品认证等买家核心问题。',
+            ss['CalloutWarn']))
 
-    # 3.2 B2B外贸买家关键词覆盖
-    el.append(Spacer(1, 4*mm))
-    el.append(Paragraph('<b>2. B2B外贸买家关键词覆盖</b>', ss['H2Style']))
+    # ─── 11. B2B 关键词 ──────────────────────────────────────────
+    el.append(Paragraph('十二、B2B外贸买家关键词覆盖', ss['H1Style']))
+    el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
+
+    # Use category B2B summary (aggregated from product pages) if available
     b2b = site.get('category_b2b_summary', site.get('b2b_keywords', {}))
     b2b_page_count = b2b.get('product_pages_analyzed', 0)
     if b2b_page_count > 0:
-        el.append(Paragraph(f'<b>基于第一个分类下 {b2b_page_count} 个产品页的 B2B 关键词汇总分析</b>', ss['Label']))
+        el.append(Paragraph(
+            f'<b>基于第一个分类下 {b2b_page_count} 个产品页的 B2B 关键词汇总分析</b>',
+            ss['Label']))
     core = b2b.get('core_product', {})
     spec = b2b.get('specifications', {})
     app = b2b.get('applications', {})
     lng = b2b.get('longtail_buyer', {})
+
     el.append(make_table(
         ['子维度', '信号数', '子评分'],
         [
@@ -1155,12 +1206,12 @@ def generate(data, output_path, title=None):
             ['应用场景覆盖', str(app.get('signal_count', 0)), str(app.get('score', 0))],
             ['外贸长尾词覆盖', str(lng.get('signal_count', 0)), str(lng.get('score', 0))],
         ], ss, cw=[0.45, 0.25, 0.30]))
+    el.append(Spacer(1, 3*mm))
 
     bigrams = b2b.get('buyer_bigrams', [])
     headings = b2b.get('heading_phrases', [])
     if bigrams:
         uniq = list(dict.fromkeys(bigrams))[:15]
-        el.append(Spacer(1, 3*mm))
         el.append(Paragraph('<b>检测到的买家意图短语：</b>', ss['Label']))
         el.append(Paragraph('、'.join(uniq), ss['Body']))
     if headings:
@@ -1168,35 +1219,59 @@ def generate(data, output_path, title=None):
         el.append(Paragraph('<b>标题短语提取：</b>', ss['Label']))
         el.append(Paragraph('、'.join(uniq_h), ss['Body']))
 
+    # ============================================================
+    # Backend Keyword System (后端关键词体系)
+    # Based on user-provided categories or auto-detected categories
+    # Support multiple categories, each generating its own keyword system
+    # ============================================================
     kw_systems = site.get('backend_keyword_systems', {})
     kw_sys_single = site.get('backend_keyword_system')
+    
+    # Fallback: if backend_keyword_systems doesn't exist but backend_keyword_system does
     if not kw_systems and kw_sys_single:
         primary_cats = kw_sys_single.get('primary_categories', [])
         cat_name = primary_cats[0] if primary_cats else 'Unknown'
         kw_systems = {cat_name: kw_sys_single}
+    
     if kw_systems:
         user_cats = site.get('user_categories', [])
         if user_cats:
             el.append(Spacer(1, 6*mm))
-            el.append(Paragraph(f'<font color="{PRIMARY}"><b>■ 用户指定分类词：{", ".join(user_cats)}</b></font>', ss['H2Style']))
+            el.append(Paragraph(
+                f'<font color="{PRIMARY}"><b>■ 用户指定分类词：{", ".join(user_cats)}</b></font>',
+                ss['H2Style']))
             el.append(HRFlowable(width='100%', thickness=0.8, color=colors.HexColor('#DEE2E6'), spaceAfter=4*mm))
+        
         for cat_name, kw_sys in kw_systems.items():
             _render_keyword_system(el, cat_name, kw_sys, ss, make_table)
+
+    # Category-based keyword recommendations (legacy, shown below keyword system)
+
+    # Category-based keyword recommendations
+    # Only use user-provided/confirmed categories (not auto-detected top_categories)
     user_cats = site.get('user_categories', [])
     if user_cats:
         el.append(Spacer(1, 4*mm))
         el.append(Paragraph('<b>基于网站分类的核心产品关键词推荐：</b>', ss['Label']))
+
         for cat in user_cats:
+            # Generate 10-15 recommendations based on the user category name
             recs = generate_category_keywords(cat, site.get('base_url', ''))
             el.append(Spacer(1, 2*mm))
             el.append(Paragraph(f'<b>【{cat}】</b>', ss['Body']))
-            kw_rows = [[kw, intent, priority] for kw, intent, priority in recs]
+            # Display as a table with keyword, intent, priority
+            kw_rows = []
+            for kw, intent, priority in recs:
+                kw_rows.append([kw, intent, priority])
             if kw_rows:
-                el.append(make_table(['推荐关键词', '搜索意图', '优先级'], kw_rows, ss, cw=[0.40, 0.35, 0.25]))
+                el.append(make_table(
+                    ['推荐关键词（2-4词）', '搜索意图', '优先级'],
+                    kw_rows, ss, cw=[0.40, 0.35, 0.25]))
 
-    # 3.3 页面级 PAA 内容检测
-    el.append(Spacer(1, 4*mm))
-    el.append(Paragraph('<b>3. 页面级 PAA 内容检测</b>', ss['H2Style']))
+    # ─── 13. PAA 内容检测 ──────────────────────────────────────
+    el.append(Paragraph('十三、页面级 PAA 内容检测', ss['H1Style']))
+    el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
+
     paa = site.get('paa_content', {})
     el.append(make_table(
         ['检测项', '结果', '评估'],
@@ -1204,7 +1279,7 @@ def generate(data, output_path, title=None):
             ['FAQPage 结构化数据', f'{paa.get("faq_schema_count",0)} 个问答', '是' if paa.get('faq_schema_count',0) > 0 else '否'],
             ['<details>/<summary> 元素', f'{paa.get("details_count",0)} 个', '是' if paa.get('details_count',0) > 0 else '否'],
             ['手风琴/折叠组件', f'{paa.get("accordion_count",0)} 个', '是' if paa.get('accordion_count',0) > 0 else '否'],
-            ['疑问式标题 (H2/H3)', f'{len(paa.get("question_headings",[]))} 个', '是' if len(paa.get("question_headings",[])) > 0 else '否'],
+            ['疑问式标题 (H2/H3)', f'{len(paa.get("question_headings",[]))} 个', '是' if len(paa.get('question_headings',[])) > 0 else '否'],
             ['PAA 就绪', '是' if paa.get('paa_ready') else '否', '是' if paa.get('paa_ready') else '否'],
         ], ss, cw=[0.35, 0.30, 0.35]))
 
@@ -1215,6 +1290,7 @@ def generate(data, output_path, title=None):
         for q in detected_qs[:8]:
             el.append(Paragraph(f'  • {q}', ss['ListItem']))
 
+    # PAA explanation
     el.append(Spacer(1, 4*mm))
     el.append(Paragraph('<b>什么是 PAA（People Also Ask）？</b>', ss['H2Style']))
     el.append(Paragraph(
@@ -1224,29 +1300,40 @@ def generate(data, output_path, title=None):
         '（1）包含 FAQPage JSON-LD 结构化数据；（2）页面中有清晰的问答式内容结构（如手风琴/折叠组件）。',
         ss['Body']))
 
-    b2b_kw = site.get('b2b_keywords', {})
-    top_cats = b2b_kw.get('top_categories', [])
+    # Generate example PAA content based on website's top product category
+    b2b = site.get('b2b_keywords', {})
+    top_cats = b2b.get('top_categories', [])
     product = top_cats[0] if top_cats else site.get('title', {}).get('text', 'your product')
+
     el.append(Spacer(1, 3*mm))
     el.append(Paragraph(f'<b>PAA 内容示例（以 {product} 为例）：</b>', ss['H2Style']))
-    el.append(Paragraph('以下是基于该产品生成的 PAA 问答内容示例，可直接用于网站 FAQ 页面或产品详情页的折叠区块：', ss['Body']))
+    el.append(Paragraph(
+        '以下是基于该产品生成的 PAA 问答内容示例，可直接用于网站 FAQ 页面或产品详情页的折叠区块：',
+        ss['Body']))
+
     paa_examples = generate_paa_examples(product)
-    paa_rows = [[f'Q{i}', q, a] for i, (q, a) in enumerate(paa_examples, 1)]
+    paa_rows = []
+    for i, (q, a) in enumerate(paa_examples, 1):
+        paa_rows.append([f'Q{i}', q, a])
     el.append(Spacer(1, 2*mm))
-    el.append(make_table(['编号', '问题', '建议答案要点'], paa_rows, ss, cw=[0.08, 0.35, 0.57]))
+    el.append(make_table(
+        ['编号', '问题', '建议答案要点'],
+        paa_rows, ss, cw=[0.08, 0.35, 0.57]))
+
     el.append(Spacer(1, 3*mm))
     el.append(Paragraph(
-        '设置方法：将以上问答内容以 <details>/<summary> 或手风琴组件的形式添加到产品页面底部，'
-        '同时在页面的 <script type="application/ld+json"> 中添加对应的 FAQPage schema。'
+        '&lt;b&gt;设置方法：&lt;/b&gt;将以上问答内容以 &lt;details&gt;/&lt;summary&gt; 或手风琴组件的形式添加到产品页面底部，'
+        '同时在页面的 &lt;script type="application/ld+json"&gt; 中添加对应的 FAQPage schema。'
         '这样 Google 就能将这些内容识别为结构化问答，大幅提升 PAA 展示概率。',
         ss['CalloutWarn']))
 
-    # ══ 四、综合结论 ══
-    el.append(PageBreak())
-    el.append(Paragraph('四、综合结论', ss['H1Style']))
+    # ─── 14. 综合结论 ────────────────────────────────────────────
+    el.append(Paragraph('十四、综合结论', ss['H1Style']))
     el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
-    strengths = [(cn, scores.get(k)) for k, cn, w in DIMS if k not in ('structure','content') and scores.get(k, 0) >= 8]
-    weaknesses = [(cn, scores.get(k)) for k, cn, w in DIMS if k not in ('structure','content') and scores.get(k, 0) <= 4]
+
+    strengths = [(cn, scores.get(k)) for k, cn, w in DIMS if scores.get(k, 0) >= 8]
+    weaknesses = [(cn, scores.get(k)) for k, cn, w in DIMS if scores.get(k, 0) <= 4]
+
     el.append(Paragraph('<b>■ 优势维度</b>', ss['H2Style']))
     for cn, sv in strengths:
         el.append(Paragraph(f'  {cn}：{sv}/10', ss['ListItem']))
@@ -1257,48 +1344,66 @@ def generate(data, output_path, title=None):
     if not weaknesses:
         el.append(Paragraph('  所有维度得分均在5分以上，无严重短板。', ss['ListItem']))
 
-    # ══ 五、修复优先级方案 ══
+    # ─── 14. 修复方案 ────────────────────────────────────────────
     el.append(PageBreak())
-    el.append(Paragraph('五、修复优先级方案', ss['H1Style']))
+    el.append(Paragraph('十五、修复优先级方案', ss['H1Style']))
     el.append(HRFlowable(width='100%', thickness=1.5, color=PRIMARY, spaceAfter=4*mm))
-    prio_map = {'geo': 'P1', 'b2b': 'P1', 'paa': 'P1', 'alt': 'P1',
-                'title': 'P2', 'desc': 'P2', 'h12': 'P2', 'hreflang': 'P2',
-                'og': 'P3', 'sitemap': 'P3', 'social': 'P3', 'security': 'P3'}
-    priority_rows = []
+
+    # P0
+    el.append(Paragraph('<b>P0 — 紧急修复（得分 ≤ 3）</b>', ss['H2Style']))
+    p0 = []
     for k, cn, w in DIMS:
-        if k in ('structure', 'content'):
-            continue
-        score = scores.get(k, 0)
-        prio = prio_map.get(k, 'P2')
-        desc = '立即修复' if score <= 4 else '计划修复' if score <= 6 else '持续优化'
-        priority_rows.append([prio, cn, f'{score}/10', desc])
-    priority_rows.sort(key=lambda x: x[0])
-    el.append(make_table(['优先级', '维度', '得分', '建议'], priority_rows, ss, cw=[0.15, 0.35, 0.15, 0.35]))
-    el.append(Spacer(1, 5*mm))
-    p1s = [(cn, k) for k, cn, w in DIMS if k not in ('structure','content') and scores.get(k, 0) <= 4]
-    if p1s:
-        el.append(Paragraph('<b>P1 - 立即修复（得分 ≤4）</b>', ss['H2Style']))
-        for cn, k in p1s:
+        sv = scores.get(k, 0)
+        if sv <= 3:
             if k == 'geo':
-                msg = '添加 FAQPage / HowTo / Organization JSON-LD 结构化数据，填充 AI 搜索内容空白'
-            elif k == 'b2b':
-                msg = '优化产品页 B2B 关键词密度，增加核心产品词、规格参数、外贸长尾词覆盖'
-            elif k == 'paa':
-                msg = '在产品页添加 FAQ 区块和 FAQPage schema，提升 PAA 展示概率'
-            elif k == 'alt':
-                msg = '为所有产品图片补充描述性 Alt 文本，优先覆盖缺失图片'
+                p0.append(f'{cn}（{sv}/10）：立即添加 JSON-LD 结构化数据（FAQPage + HowTo + Organization）'
+                         '以及 FAQ/HowTo 内容区块，提升 AI 可引用概率。')
+            elif k == 'hreflang':
+                p0.append(f'{cn}（{sv}/10）：建议在页面 head 中添加 hreflang 标签并设置 x-default，'
+                         f'以明确告知搜索引擎各语言版本之间的关系。')
             else:
-                msg = '优化该维度以提升整体评分'
-            el.append(Paragraph(f'  {cn}：{msg}', ss['ListItem']))
+                p0.append(f'{cn}（{sv}/10）：需要紧急修复。')
+    if p0:
+        for item in p0: el.append(Paragraph(item, ss['CalloutDanger']))
+    else:
+        el.append(Paragraph('无紧急修复项。', ss['CalloutOK']))
 
+    # P1
     el.append(Spacer(1, 3*mm))
-    el.append(Paragraph(
-        '<b>修复建议说明：</b>'
-        'P1 为立即修复，针对 AI 搜索表现和 B2B 买家关键词覆盖等高权重维度，'
-        '投入少见效快；P2 为计划修复，需一定开发资源；P3 为持续优化，可随网站迭代推进。',
-        ss['Body']))
+    el.append(Paragraph('<b>P1 — 优先优化（得分 4-6）</b>', ss['H2Style']))
+    p1 = []
+    for k, cn, w in DIMS:
+        sv = scores.get(k, 0)
+        if 4 <= sv <= 6:
+            if k == 'title':
+                p1.append(f'{cn}（{sv}/10）：缩短至60字符以内，建议格式为"核心关键词 + 品牌名"。')
+            elif k == 'geo':
+                p1.append(f'{cn}（{sv}/10）：增加 FAQ 和 HowTo 内容区块，提升 AI 可引用概率。')
+            elif k == 'b2b':
+                p1.append(f'{cn}（{sv}/10）：补充核心产品词和应用场景描述，增加买家意图长尾词覆盖。')
+            else:
+                p1.append(f'{cn}（{sv}/10）：需要优化改进。')
+    if p1:
+        for item in p1: el.append(Paragraph(item, ss['CalloutWarn']))
+    else:
+        el.append(Paragraph('无优先优化项。', ss['CalloutOK']))
 
-    doc.build(el)
+    # P2
+    el.append(Spacer(1, 3*mm))
+    el.append(Paragraph('<b>P2 — 持续改进（得分 7-8）</b>', ss['H2Style']))
+    p2 = []
+    for k, cn, w in DIMS:
+        sv = scores.get(k, 0)
+        if 7 <= sv <= 8:
+            p2.append(f'{cn}（{sv}/10）：表现良好，可进一步优化。')
+    if p2:
+        for item in p2: el.append(Paragraph(item, ss['CalloutOK']))
+    else:
+        el.append(Paragraph('无持续改进项。', ss['Body']))
+
+    doc.build(el, onFirstPage=on_cover, onLaterPages=on_page)
+    return output_path
+
 
 def main():
     if len(sys.argv) < 3:
