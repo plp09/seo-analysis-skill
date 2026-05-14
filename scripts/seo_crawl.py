@@ -971,15 +971,10 @@ def generate_backend_keyword_system(categories, product_pages=None):
     first_cat_words = first_cat_lower.split()
     
     def _get_h2_texts(pp):
-        """Extract H2 heading texts from a product page (handle both list-of-dict and list-of-str)."""
+        """Extract H2 heading texts from a product page."""
         h2_list = pp.get('headings', {}).get('H2', [])
-        result = []
-        for h in h2_list:
-            if isinstance(h, dict):
-                result.append(h.get('text', ''))
-            elif isinstance(h, str):
-                result.append(h)
-        return result
+        # H2 entries are plain strings from extract_headings()
+        return [h.strip() for h in h2_list if isinstance(h, str) and h.strip()]
     
     matched_products = []
     if product_pages:
@@ -995,10 +990,7 @@ def generate_backend_keyword_system(categories, product_pages=None):
     prod_titles = [pp.get('title', {}).get('text', '') for pp in matched_products if pp.get('title', {}).get('text')]
     prod_h2s = [h for pp in matched_products for h in pp.get('headings', {}).get('H2', [])]
     prod_text = ' '.join(prod_titles).lower() if prod_titles else ''
-    prod_h2_text = ' '.join([
-        h.get('text', '') if isinstance(h, dict) else str(h)
-        for h in prod_h2s
-    ]).lower()
+    prod_h2_text = ' '.join([h for h in prod_h2s if isinstance(h, str)]).lower()
     
     # If no products matched, fall back to all products (don't break generation)
     if not prod_titles and product_pages:
@@ -1193,18 +1185,6 @@ def generate_backend_keyword_system(categories, product_pages=None):
     
     # ── 2. 关键词 (Main Keywords) — 20个 ─────────────────────
     # All keywords target EU/US B2B buyer search habits.
-    keywords = []
-    seen_kw = set()
-    
-    def add_kw(kw):
-        if kw.lower() not in seen_kw:
-            keywords.append(kw)
-            seen_kw.add(kw.lower())
-    # Each keyword phrase is 2-4 words long, matching how professional buyers search.
-    # Priority: transaction-intent > specification > scenario > informational.
-    
-    # ── 2. Keywords — 20个 ─────────────────────
-    # All keywords target EU/US B2B buyer search habits.
     # Each keyword phrase is 2-4 words long, matching how professional buyers search.
     # Priority: transaction-intent > specification > scenario > informational.
     keywords = []
@@ -1219,9 +1199,22 @@ def generate_backend_keyword_system(categories, product_pages=None):
     base_wc = len(base_root.split())
     
     def safe_kw(*parts):
-        """Build a keyword from parts, return it if 2-4 words, else None."""
+        """Build a keyword from parts, return it if 2-4 words, else try truncation."""
         candidate = ' '.join(parts)
-        return candidate if 2 <= len(candidate.split()) <= 4 else None
+        wc = len(candidate.split())
+        if 2 <= wc <= 4:
+            return candidate
+        # If >4 words and base_root is 3+ words, try dropping last word of base
+        if wc > 4 and base_wc >= 3:
+            # Try with first 2 words of base_root + modifier
+            base_words = base_root.split()
+            truncated = ' '.join(base_words[:2])
+            for p in parts:
+                if p != base_root:
+                    truncated_candidate = f'{truncated} {p}'
+                    if 2 <= len(truncated_candidate.split()) <= 4:
+                        return truncated_candidate
+        return None
     
     # Core exact match
     add_kw(base_root)
@@ -1239,44 +1232,83 @@ def generate_backend_keyword_system(categories, product_pages=None):
             add_kw(kw)
     
     # Specification-intent (2-4 words): technical attribute modifiers
+    # Dynamically extract spec attributes from product text; fallback to generic B2B specs
     spec_attrs = []
     spec_patterns = [
-        (r'(\d+\s*lbs?)', 'holding force'),
-        (r'(\d+\s*kg)', 'holding force'),
-        (r'(\d+\s*V)', 'voltage'),
-        (r'(fail\s*safe|fail\s*secure)', 'operation mode'),
-        (r'(waterproof|IP\d+)', 'protection'),
-        (r'(stainless\s*steel|zinc\s*alloy|aluminum)', 'material'),
-        (r'(surface\s*mount|mortise|embedded)', 'mounting'),
-        (r'(single\s*door|double\s*door)', 'door type'),
-        (r'(with\s*LED|with\s*timer|with\s*sensor)', 'feature'),
+        # Numeric specs with units
+        (r'(\d+\s*(?:lbs?|kg|N|lb))', 'force/capacity'),
+        (r'(\d+\s*V(?:\s*DC)?)', 'voltage'),
+        (r'(\d+\s*(?:mm|cm|m|in|inch|ft))', 'dimension'),
+        (r'(\d+\s*(?:W|watt|kW))', 'power'),
+        (r'(\d+\s*(?:A|mA|Ah))', 'current/capacity'),
+        # Material
+        (r'((?:stainless\s*steel|zinc\s*alloy|aluminum|aluminium|carbon\s*steel|brass|copper|cast\s*iron|titanium|ABS|PC|PVC|nylon))', 'material'),
+        # Protection
+        (r'((?:waterproof|IP\d+|IP\d{2}|dustproof|weatherproof|rustproof))', 'protection'),
+        # Operation mode / feature
+        (r'((?:fail\s*safe|fail\s*secure|auto\s*reset|manual\s*reset|normally\s*open|normally\s*closed))', 'operation'),
+        # Mounting
+        (r'((?:surface\s*mount|mortise|embedded|recessed|wall\s*mount|ceiling\s*mount|pole\s*mount|bracket))', 'mounting'),
+        # Certification
+        (r'((?:CE\s*certified|UL\s*listed|RoHS|FCC|ISO\s*\d+|ETL|TUV|SGS|SAA))', 'certification'),
     ]
     if prod_text:
         for pat, label in spec_patterns:
             m = re.search(pat, prod_text, re.I)
             if m and len(spec_attrs) < 6:
                 spec_attrs.append(m.group(1).strip())
+    # Fallback: if no spec attrs found from products, use generic B2B-relevant specs
     if not spec_attrs:
         if base_wc <= 2:
-            spec_attrs = ['fail safe', 'surface mount', '12V DC', 'single door', 'CE certified', 'stainless steel']
+            spec_attrs = ['CE certified', 'stainless steel', 'OEM available', 'custom design', 'high quality', 'factory direct']
         else:
-            spec_attrs = ['fail safe', '12V', 'CE', 'UL', 'IP65']
+            spec_attrs = ['CE certified', 'OEM', 'custom', 'factory']
     for attr in spec_attrs:
         # Try prefix first: "fail safe Electromagnetic Lock"
         kw = safe_kw(attr, base_root)
         if kw:
             add_kw(kw)
         else:
-            # Try suffix: "Electromagnetic Lock fail safe"  
+            # Try suffix: "Electromagnetic Lock fail safe"
             kw = safe_kw(base_root, attr)
             if kw:
                 add_kw(kw)
     
     # Scenario-intent (2-4 words): application context
-    if base_wc <= 2:
-        scenario_mods = ['access control', 'fire door', 'security door', 'emergency exit', 'commercial building']
-    else:
-        scenario_mods = ['access control', 'fire door', 'security', 'commercial']
+    # Dynamically extract from product text; fallback to generic B2B scenarios
+    scenario_mods = []
+    scenario_patterns = [
+        r'for\s+([\w\s]+?)(?:\.|,|;|$)',
+        r'(?:used\s+(?:in|for))\s+([\w\s]+?)(?:\.|,|;|$)',
+        r'(?:application|applied\s+in)\s+([\w\s]+?)(?:\.|,|;|$)',
+    ]
+    if prod_text:
+        for pat in scenario_patterns:
+            for m in re.finditer(pat, prod_text, re.I):
+                phrase = m.group(1).strip()[:30]
+                # Only keep short, meaningful phrases
+                if 3 < len(phrase) < 30 and phrase not in scenario_mods:
+                    words_in = len(phrase.split())
+                    if words_in <= 2:  # Only short modifiers
+                        scenario_mods.append(phrase)
+                if len(scenario_mods) >= 5:
+                    break
+    # Fallback: generic B2B scenarios (adapt to product type)
+    if not scenario_mods:
+        if best_type:
+            scene_map = {
+                'highbay': ['warehouse', 'factory', 'gymnasium', 'supermarket', 'workshop'],
+                'floodlight': ['stadium', 'parking lot', 'facade', 'construction', 'garden'],
+                'streetlight': ['highway', 'residential', 'parking lot', 'campus', 'garden'],
+                'striplight': ['kitchen', 'bedroom', 'bar', 'display', 'garden'],
+                'panellight': ['office', 'conference', 'hospital', 'school', 'hotel'],
+                'tubelight': ['warehouse', 'workshop', 'corridor', 'parking', 'cold storage'],
+            }
+            scenario_mods = scene_map.get(best_type, ['industrial', 'commercial', 'outdoor', 'indoor', 'professional'])
+        else:
+            scenario_mods = ['industrial', 'commercial', 'outdoor', 'indoor', 'professional']
+        if base_wc >= 3:
+            scenario_mods = [s for s in scenario_mods if len(s.split()) <= 1][:4]
     for scene in scenario_mods:
         kw = safe_kw(base_root, scene)
         if kw:
@@ -1673,35 +1705,35 @@ def generate_backend_keyword_system(categories, product_pages=None):
         },
     }
     
-    # Generic fallback for unknown product types
+    # Generic fallback for unknown product types — truly generic, no domain-specific hardcoding
     SP_GENERIC = {
         '产品精度 (Accuracy)': [
-            'high precision measurement ±0.01', 'professional grade accuracy ±0.1%',
+            'high precision measurement', 'professional grade accuracy',
             'auto calibration function', 'temperature compensation ATC',
         ],
         '产品规格 (Specifications)': [
-            f'{roots[0]} with LCD display', 'compact pen-type portable design',
-            'wide measurement range', 'fast response time <3s',
+            f'{roots[0]} with LCD display', 'compact portable design',
+            'wide measurement range', 'fast response time',
         ],
         '产品类型 (Product Type)': [
             f'{roots[0]} digital version', f'{roots[0]} analog version',
-            f'{roots[0]} pen-type version', f'{roots[0]} benchtop version',
+            f'{roots[0]} portable version', f'{roots[0]} benchtop version',
         ],
         '材质工艺 (Material)': [
             'ABS housing durable', 'waterproof IP65 rated',
-            'stainless steel probe', 'replaceable sensor electrode',
+            'stainless steel body', 'replaceable parts design',
         ],
         '连接方式 (Connectivity)': [
             'Bluetooth wireless data transfer', 'WiFi smart app control',
-            'USB data logging export', 'Tuya/Smart Life app compatible',
+            'USB data logging export', 'remote monitoring compatible',
         ],
         '电源规格 (Power)': [
-            'LR44 button cell battery', 'AAA battery powered portable',
-            'USB rechargeable lithium', 'auto power off energy saving',
+            'battery powered portable', 'USB rechargeable lithium',
+            'AC power adapter included', 'auto power off energy saving',
         ],
-        '测量范围 (Measurement Range)': [
-            '0.00-14.00 pH range', '0-9990 ppm TDS range',
-            '0-50°C temperature range', 'multi-parameter 6-in-1 testing',
+        '性能参数 (Performance)': [
+            'wide operating range', 'high sensitivity detection',
+            'stable long-term performance', 'multi-function integrated',
         ],
         '封装工艺 (Encapsulation)': [
             'aluminum alloy housing', 'plastic shell lightweight',
@@ -1716,8 +1748,9 @@ def generate_backend_keyword_system(categories, product_pages=None):
             'neutral packing OEM', 'carton pallet export',
         ],
         '场景应用 (Applications)': [
-            'laboratory research testing', 'aquaculture fish farming',
-            'hydroponics agriculture', 'drinking water quality', 'pool spa maintenance',
+            'industrial quality control', 'laboratory research testing',
+            'field on-site inspection', 'production line monitoring',
+            'safety compliance checking',
         ],
         '服务保障 (Service/Warranty)': [
             '2 years warranty', 'free spare parts',
@@ -2006,6 +2039,7 @@ def main():
                             'howto_block_count': count_howto_blocks(prod_html),
                             'canonical': extract_canonical(prod_html),
                             'b2b_keywords': analyze_b2b_keywords(prod_html),
+                            'paa_content': detect_paa_content(prod_html),
                             'og': extract_og(prod_html),
                             'hreflang': extract_hreflang(prod_html),
                             'https': prod_url.startswith('https://'),

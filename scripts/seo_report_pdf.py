@@ -9,6 +9,7 @@ import json
 import sys
 import os
 import math
+import re
 import html
 from datetime import datetime
 
@@ -759,6 +760,57 @@ def calc_scores(site):
     bs = cp * 0.30 + sp_val * 0.25 + ap * 0.20 + lp * 0.25 + density_bonus
     s['b2b'] = min(10, max(0, round(bs, 1)))
     
+    # === PAA Content Coverage ===
+    # Score based on homepage + product page PAA signals
+    def paa_score_page(page):
+        paa = page.get('paa_content', {})
+        if not paa:
+            # No PAA data collected for this page; use basic FAQ/HowTo signals
+            faq = page.get('faq_block_count', 0)
+            howto = page.get('howto_block_count', 0)
+            faq_howto_score = min(4, faq * 1.5 + howto * 1.5)
+            # Check headings for question patterns
+            headings = page.get('headings', {})
+            q_count = 0
+            question_words = ['what', 'how', 'why', 'when', 'where', 'which', 'who', 'can', 'do', 'does', 'is', 'are']
+            for h2 in headings.get('H2', []):
+                h2_text = h2.strip().lower() if isinstance(h2, str) else ''
+                if any(h2_text.startswith(qw + ' ') for qw in question_words):
+                    q_count += 1
+            heading_score = min(3, q_count)
+            return min(10, faq_howto_score + heading_score)
+        
+        # Full PAA data available
+        score = 0
+        # FAQPage schema (highest value for PAA)
+        if paa.get('faq_schema_count', 0) >= 5:
+            score += 4
+        elif paa.get('faq_schema_count', 0) >= 3:
+            score += 3
+        elif paa.get('faq_schema_count', 0) >= 1:
+            score += 2
+        # Details/Summary elements
+        if paa.get('details_count', 0) >= 3:
+            score += 2
+        elif paa.get('details_count', 0) >= 1:
+            score += 1
+        # Accordion/toggle components
+        if paa.get('accordion_count', 0) >= 3:
+            score += 2
+        elif paa.get('accordion_count', 0) >= 1:
+            score += 1
+        # Question headings
+        q_count = len(paa.get('question_headings', []))
+        if q_count >= 3:
+            score += 2
+        elif q_count >= 1:
+            score += 1
+        return min(10, score)
+    
+    home_paa = paa_score_page(site)
+    prod_paa_avg = product_avg_score(paa_score_page, product_pages)
+    s['paa'] = round(home_paa * 0.3 + prod_paa_avg * 0.7, 1) if n_prod else home_paa
+    
     # If the page was JS-rendered and couldn't be properly fetched,
     # mark scores with a flag but don't zero them out
     if js_fallback:
@@ -780,6 +832,7 @@ DIMS = [
     ('security',    '技术安全性',          1.2),
     ('geo',         'GEO/AI 内容与结构',   2.6),
     ('b2b',         'B2B外贸关键词覆盖',  1.4),
+    ('paa',         'PAA内容覆盖',        1.4),
 ]
 
 
@@ -803,6 +856,7 @@ def overall(scores):
     scores['structure'] = structure_score
     scores['content'] = content_score
 
+    # Weighted: structure 60% + content 40%
     t = structure_score * 6 + content_score * 4
     return round(t / 10, 1)
 
@@ -1236,8 +1290,8 @@ def generate(data, output_path, title=None):
     el.append(make_table(['编号', '问题', '建议答案要点'], paa_rows, ss, cw=[0.08, 0.35, 0.57]))
     el.append(Spacer(1, 3*mm))
     el.append(Paragraph(
-        '设置方法：将以上问答内容以 <details>/<summary> 或手风琴组件的形式添加到产品页面底部，'
-        '同时在页面的 <script type="application/ld+json"> 中添加对应的 FAQPage schema。'
+        '设置方法：将以上问答内容以 &lt;details&gt;/&lt;summary&gt; 或手风琴组件的形式添加到产品页面底部，'
+        '同时在页面的 &lt;script type="application/ld+json"&gt; 中添加对应的 FAQPage schema。'
         '这样 Google 就能将这些内容识别为结构化问答，大幅提升 PAA 展示概率。',
         ss['CalloutWarn']))
 
@@ -1299,6 +1353,7 @@ def generate(data, output_path, title=None):
         ss['Body']))
 
     doc.build(el)
+    return output_path
 
 def main():
     if len(sys.argv) < 3:
