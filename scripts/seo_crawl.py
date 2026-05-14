@@ -892,6 +892,9 @@ def analyze_b2b_keywords(h):
     # Use H1 + H2 + H3 headings as primary category signals
     heading_categories = []
     for hp in heading_phrases:
+        # Filter out HTML artifacts (comment fragments like --><!-- )
+        if '-->' in hp or '<!--' in hp or '<' in hp:
+            continue
         # Clean and take first 2-3 meaningful words as category
         words_in_hp = [w for w in hp.split() if len(w) > 2 and w.lower() not in
                        ('the', 'and', 'for', 'with', 'our', 'are', 'you', 'can', 'all', 'new', 'home')]
@@ -1047,7 +1050,7 @@ def generate_backend_keyword_system(categories, product_pages=None):
                    'beam': 'Type II/III/V cutoff', 'voltage': 'AC100-277V/AC85-265V/DC12V-24V solar'},
         ),
         'striplight': dict(
-            kw=['strip light', 'strip', 'tape light', 'ribbon', 'neon', 'rope light', 'flexible led'], neg=['high bay', 'highbay'],
+            kw=['strip light', 'led strip', 'tape light', 'ribbon', 'neon', 'rope light', 'flexible led', 'led tape'], neg=['high bay', 'highbay'],
             roots=['LED strip light', 'LED tape light', 'flexible LED strip',
                    'LED ribbon light', 'linear LED strip'],
             tags=['RGB LED strip', 'COB LED strip', 'addressable LED strip'],
@@ -1137,23 +1140,55 @@ def generate_backend_keyword_system(categories, product_pages=None):
             if cat2_clean.lower() != cat1_clean.lower() and cat2_clean not in roots:
                 roots.append(cat2_clean)
     else:
-        # Generic fallback
+        # Generic fallback for non-lighting products
+        # Use cleaned category names as primary roots
         for cat in primary_cats:
             clean = re.sub(r'[^A-Za-z0-9 ]+', '', cat).strip()
             if clean and clean not in roots:
                 roots.append(clean)
-        # Add common synonyms
-        for syn in ['light', 'lamp', 'fixture', 'fitting', 'luminaire']:
-            base = re.sub(r'[^A-Za-z0-9 ]+', '', primary_cats[0]).strip().split()[0]
-            candidate = f'{base} {syn}'
-            if candidate.lower() not in [r.lower() for r in roots]:
-                roots.append(candidate)
+        # Generate synonym-like variations from category name
+        cat_words = re.sub(r'[^A-Za-z0-9 ]+', '', primary_cats[0]).strip().split()
+        # Build variants: swap/substitute key words with common alternatives
+        product_synonyms = {
+            'meter': ['tester', 'monitor', 'analyzer', 'detector', 'sensor'],
+            'tester': ['meter', 'monitor', 'analyzer', 'detector', 'sensor'],
+            'monitor': ['meter', 'tester', 'analyzer', 'detector', 'sensor'],
+            'analyzer': ['meter', 'tester', 'monitor', 'detector', 'sensor'],
+            'detector': ['meter', 'tester', 'monitor', 'analyzer', 'sensor'],
+            'sensor': ['meter', 'tester', 'monitor', 'analyzer', 'detector'],
+            'scale': ['balance', 'weigher', 'weighing scale'],
+            'light': ['lamp', 'fixture', 'luminaire', 'fitting'],
+            'lamp': ['light', 'fixture', 'luminaire', 'fitting'],
+            'watch': ['smartwatch', 'wearable', 'tracker'],
+            'camera': ['cam', 'webcam', 'surveillance'],
+            'pump': ['pumping system', 'pumping unit'],
+            'valve': ['control valve', 'regulator'],
+        }
+        for word in cat_words:
+            syns = product_synonyms.get(word.lower(), [])
+            for syn in syns:
+                # Replace the word in the category name
+                variant = primary_cats[0].replace(word, syn) if word in primary_cats[0] else f'{primary_cats[0]} {syn}'
+                variant = re.sub(r'[^A-Za-z0-9 ]+', '', variant).strip()
+                if variant.lower() not in [r.lower() for r in roots]:
+                    roots.append(variant)
+                if len(roots) >= 5:
+                    break
             if len(roots) >= 5:
                 break
-    
+        # If still not enough roots, add manufacturer + category combos
+        if len(roots) < 5:
+            base_words = re.sub(r'[^A-Za-z0-9 ]+', '', primary_cats[0]).strip()
+            for suffix in ['wholesale', 'factory', 'supplier', 'manufacturer']:
+                candidate = f'{base_words} {suffix}'
+                if candidate.lower() not in [r.lower() for r in roots]:
+                    roots.append(candidate)
+                if len(roots) >= 5:
+                    break
+
     roots = list(dict.fromkeys(roots))[:5]
     while len(roots) < 5:
-        roots.append(f'{primary_cats[0]} LED variant {len(roots)+1}')
+        roots.append(f'{primary_cats[0]} variant {len(roots)+1}')
     roots = roots[:5]
     
     # ── 2. 关键词 (Main Keywords) — 20个 ─────────────────────
@@ -1189,14 +1224,24 @@ def generate_backend_keyword_system(categories, product_pages=None):
     elif best_type == 'tubelight':
         attrs = ['integrated', 'emergency backup', 'motion sensor', 'vapor tight', 'linkable']
     else:
-        attrs = ['dimmable', 'waterproof', 'smart', 'energy saving', 'commercial']
+        # Generic attrs for non-lighting products - derive from product text
+        attrs = []
+        generic_attr_options = ['waterproof', 'smart', 'bluetooth', 'wifi', 'digital',
+                                'portable', 'handheld', 'professional', 'industrial',
+                                'pocket', 'mini', 'compact', 'USB rechargeable',
+                                'tuya app', 'high precision']
+        for ga in generic_attr_options:
+            if ga.lower() in prod_text and len(attrs) < 5:
+                attrs.append(ga)
+        if not attrs:
+            attrs = ['professional', 'digital', 'portable', 'smart', 'waterproof']
     for attr in attrs:
         for r in roots[:2]:
             add_kw(f'{attr} {r}')
     
     # Scenario / long-tail
     scenes = PTYPES[best_type]['scenes'] if best_type else [
-        'warehouse', 'office', 'retail', 'outdoor', 'commercial'
+        'laboratory', 'industrial', 'agriculture', 'aquaculture', 'commercial'
     ]
     for scene in scenes[:4]:
         r = roots[0]
@@ -1213,8 +1258,8 @@ def generate_backend_keyword_system(categories, product_pages=None):
     # Pad to 20
     extra = [
         f'best {roots[0]} manufacturer', f'{roots[0]} price list',
-        f'{roots[0]} catalog PDF', f'{roots[0]} installation guide',
-        f'energy saving {roots[0]}', f'{roots[0]} with 5 year warranty',
+        f'{roots[0]} catalog PDF', f'{roots[0]} user manual',
+        f'professional {roots[0]}', f'{roots[0]} with warranty',
         f'{roots[0]} CE RoHS certified',
     ]
     for kw in extra:
@@ -1228,8 +1273,20 @@ def generate_backend_keyword_system(categories, product_pages=None):
         for t in PTYPES[best_type]['tags'][:3]:
             tags.append(t)
     else:
-        tags = [f'waterproof {roots[0]}', f'dimmable {roots[0]}', f'commercial {roots[0]}']
-    tags = tags[:3]
+        # Generic tags for non-lighting products
+        # Build from product attributes found in matched product pages
+        tag_candidates = []
+        if matched_products:
+            # Extract common attribute words from product titles
+            attr_words = ['waterproof', 'bluetooth', 'wifi', 'smart', 'digital', 'portable',
+                          'handheld', 'pocket', 'pen-type', 'professional', 'industrial',
+                          'mini', 'compact', 'usb', 'rechargeable', 'wireless', 'tuya']
+            for aw in attr_words:
+                if aw in prod_text:
+                    tag_candidates.append(f'{aw} {roots[0]}')
+        if not tag_candidates:
+            tag_candidates = [f'professional {roots[0]}', f'industrial {roots[0]}', f'portable {roots[0]}']
+        tags = tag_candidates[:3]
     
     # ── 4. 卖点 (Selling Points) — ≤50个，按12类 ───────────
     # Build type-specific selling points
@@ -1559,52 +1616,52 @@ def generate_backend_keyword_system(categories, product_pages=None):
     
     # Generic fallback for unknown product types
     SP_GENERIC = {
-        '防护等级 (Protection)': [
-            'IP65 waterproof dustproof', 'IP67 fully sealed',
-            'IK10 impact resistant', 'outdoor weatherproof',
+        '产品精度 (Accuracy)': [
+            'high precision measurement ±0.01', 'professional grade accuracy ±0.1%',
+            'auto calibration function', 'temperature compensation ATC',
         ],
-        '电压规格 (Voltage)': [
-            'AC100-277V universal voltage', 'DC12V/24V low voltage safe',
-            'AC220-240V standard',
+        '产品规格 (Specifications)': [
+            f'{roots[0]} with LCD display', 'compact pen-type portable design',
+            'wide measurement range', 'fast response time <3s',
         ],
-        'LED类型 (LED Type)': [
-            'SMD2835 high efficiency', 'SMD5050 bright output',
-            'COB integrated', 'CSP chip scale package',
+        '产品类型 (Product Type)': [
+            f'{roots[0]} digital version', f'{roots[0]} analog version',
+            f'{roots[0]} pen-type version', f'{roots[0]} benchtop version',
         ],
-        '光效密度 (Luminosity)': [
-            '120lm/W standard', '140lm/W high efficiency',
-            '160lm/W premium', 'uniform light distribution',
+        '材质工艺 (Material)': [
+            'ABS housing durable', 'waterproof IP65 rated',
+            'stainless steel probe', 'replaceable sensor electrode',
         ],
-        '亮度色温 (Brightness/CCT)': [
-            '2700K warm white', '4000K neutral white',
-            '5000K daylight white', '3000K-6500K tunable', 'CRI>80 standard',
+        '连接方式 (Connectivity)': [
+            'Bluetooth wireless data transfer', 'WiFi smart app control',
+            'USB data logging export', 'Tuya/Smart Life app compatible',
         ],
-        '光学设计 (Optics)': [
-            '120° wide beam angle', '90° focused beam',
-            'anti-glare design', 'PC diffuser soft light',
+        '电源规格 (Power)': [
+            'LR44 button cell battery', 'AAA battery powered portable',
+            'USB rechargeable lithium', 'auto power off energy saving',
         ],
-        '结构安装 (Structure/Mount)': [
-            'surface mounted easy install', 'suspended hanging kit',
-            'recessed ceiling flush', 'wall bracket adjustable',
+        '测量范围 (Measurement Range)': [
+            '0.00-14.00 pH range', '0-9990 ppm TDS range',
+            '0-50°C temperature range', 'multi-parameter 6-in-1 testing',
         ],
         '封装工艺 (Encapsulation)': [
-            'aluminum alloy housing', 'die-cast aluminum heat sink',
-            'PC cover flame retardant V0', 'modular design easy maintenance',
+            'aluminum alloy housing', 'plastic shell lightweight',
+            'waterproof sealed design', 'modular design easy maintenance',
         ],
         '认证合规 (Certifications)': [
             'CE RoHS certified', 'FCC approved',
-            'UL/DLC listed', 'TUV SGS verified',
+            'ISO9001 manufacturing', 'TUV SGS verified',
         ],
         '包装物流 (Packaging/Logistics)': [
             'individual box packaging', 'foam protection shipping',
             'neutral packing OEM', 'carton pallet export',
         ],
         '场景应用 (Applications)': [
-            'warehouse industrial', 'commercial retail',
-            'office institutional', 'outdoor area',
+            'laboratory research testing', 'aquaculture fish farming',
+            'hydroponics agriculture', 'drinking water quality', 'pool spa maintenance',
         ],
         '服务保障 (Service/Warranty)': [
-            '5 years warranty', 'free spare parts',
+            '2 years warranty', 'free spare parts',
             '24/7 technical support', 'fast delivery 7-15 days', 'OEM ODM custom',
         ],
     }
@@ -1901,6 +1958,7 @@ def main():
 
             # Aggregate B2B keywords from product pages
             product_pages = [sp for sp in sub_pages_data if sp.get('page_type') == 'product']
+            category_pages = [sp for sp in sub_pages_data if sp.get('page_type') == 'category']
             if product_pages:
                 print(f'[CRAWL]   Aggregating B2B keywords from {len(product_pages)} product pages...', file=sys.stderr)
                 b2b_summary = {
@@ -1931,6 +1989,27 @@ def main():
                 # Average scores
                 for key in ['core_product', 'specifications', 'applications', 'longtail_buyer']:
                     b2b_summary[key]['score'] = round(b2b_summary[key]['score'] / len(product_pages), 1)
+
+                # Override top_categories with category page H2 headings if available
+                # Category page H2s are the ACTUAL product categories (e.g., "Bluetooth PH Meter")
+                # Product page heading_phrases are often generic/brand names
+                if category_pages:
+                    cat_h2_categories = []
+                    for cp in category_pages:
+                        for h2 in cp.get('headings', {}).get('H2', []):
+                            # Filter out generic/non-category H2s
+                            h2_clean = h2.strip()
+                            if h2_clean and '-->' not in h2_clean and '<!--' not in h2_clean and '<' not in h2_clean:
+                                # Skip generic headings like "Best Selling Product Categories"
+                                lower_h2 = h2_clean.lower()
+                                if lower_h2 not in ('best selling product categories', 'products', 'all products', 'featured products', 'popular products', 'new products'):
+                                    cat_h2_categories.append(h2_clean)
+                    if cat_h2_categories:
+                        # Deduplicate while preserving order
+                        cat_h2_categories = list(dict.fromkeys(cat_h2_categories))
+                        b2b_summary['top_categories'] = cat_h2_categories[:10]
+                        print(f'[CRAWL]   Category page H2s override top_categories: {cat_h2_categories[:5]}', file=sys.stderr)
+
                 site_data['category_b2b_summary'] = b2b_summary
                 
                 # Generate backend keyword system for FIRST category only

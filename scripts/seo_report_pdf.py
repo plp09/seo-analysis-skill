@@ -9,6 +9,7 @@ import json
 import sys
 import os
 import math
+import html
 from datetime import datetime
 
 from reportlab.lib import colors
@@ -832,11 +833,13 @@ def generate(data, output_path, title=None):
             ['H2', str(site.get('h2_count', 0)), '充足' if site.get('h2_count',0) >= 3 else '偏少'],
         ], ss, cw=[0.30, 0.30, 0.40]))
     if h1s:
-        el.append(Paragraph(f'<b>H1 内容：</b>{h1s[0]}', ss['Body']))
+        el.append(Paragraph(f'<b>H1 内容：</b>{html.escape(h1s[0])}', ss['Body']))
     if h2s:
-        h2p = '、'.join(h2s[:10])
-        if len(h2s) > 10: h2p += f'……（共{len(h2s)}个）'
-        el.append(Paragraph(f'<b>H2 示例：</b>{h2p}', ss['Body']))
+        # Filter out HTML artifacts (e.g., "--><!--")
+        clean_h2s = [h for h in h2s if not h.strip().startswith('-->') and '<' not in h]
+        h2p = '、'.join(clean_h2s[:10])
+        if len(clean_h2s) > 10: h2p += f'……（共{len(clean_h2s)}个）'
+        el.append(Paragraph(f'<b>H2 示例：</b>{html.escape(h2p)}', ss['Body']))
     
     # 产品页标题结构统计
     product_pages = [sp for sp in site.get('sub_pages', []) if sp.get('page_type') == 'product']
