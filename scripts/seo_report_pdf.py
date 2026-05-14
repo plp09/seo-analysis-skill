@@ -1251,9 +1251,7 @@ def generate(data, output_path, title=None):
     if user_cats:
         el.append(Spacer(1, 4*mm))
         el.append(Paragraph('<b>基于网站分类的核心产品关键词推荐：</b>', ss['Label']))
-        el.append(Paragraph(
-            '<i>仅分析用户指定/确认的分类词，关键词面向欧美B2B买家搜索习惯，每个词组由2-4个关键词构成</i>',
-            ss['Body']))
+
         for cat in user_cats:
             # Generate 10-15 recommendations based on the user category name
             recs = generate_category_keywords(cat, site.get('base_url', ''))
