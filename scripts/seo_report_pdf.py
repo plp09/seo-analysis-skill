@@ -968,7 +968,7 @@ def overall(site, scores):
                 ct += scores.get(k, 0) * w
                 cw += w
         content_score = round(ct / cw, 1) if cw else 0
-        final = round(structure_score * 6 + content_score * 4, 1)
+        final = round((structure_score * 6 + content_score * 4) / 10, 1)
         scores['structure'] = structure_score
         scores['content'] = content_score
     
