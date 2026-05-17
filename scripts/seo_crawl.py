@@ -1910,14 +1910,42 @@ def analyze_page(url):
 
 # === Multi-language check ===
 def check_multilang(base_url):
+    """Check accessible language paths, filtering out SPA duplicate-content fallbacks.
+    Returns: list of {lang, url, status, accessible, unique_content, sample_hash}
+    unique_content=True only for paths that return genuinely different content from homepage.
+    """
+    import hashlib
     langs = ['zh', 'fr', 'de', 'it', 'ru', 'es', 'pt', 'nl', 'el', 'ja', 'ko', 'ar', 'hi', 'tr', 'id', 'vi', 'th', 'bn', 'fa', 'pl', 'en']
     results = []
+    # Fetch homepage for content comparison (deduplicate)
+    home_html = None
+    home_hash = None
+    try:
+        home_html, home_status = fetch(base_url.rstrip('/') + '/', timeout=8)
+        if home_html and home_status == 200:
+            # Use first 5000 chars for hash (stable, fast)
+            home_hash = hashlib.md5(home_html[:5000].encode('utf-8', errors='ignore')).hexdigest()
+    except Exception:
+        pass
+    
     for lang in langs:
         url = f'{base_url.rstrip("/")}/{lang}/'
-        _, status = fetch(url, timeout=8)
+        html, status = fetch(url, timeout=8)
         code = status if isinstance(status, int) else 0
         if code in (200, 301, 302):
-            results.append({'lang': lang, 'url': url, 'status': code, 'accessible': True})
+            is_unique = False
+            sample_hash = None
+            if code == 200 and html:
+                sample_hash = hashlib.md5(html[:5000].encode('utf-8', errors='ignore')).hexdigest()
+                is_unique = (sample_hash != home_hash)
+            results.append({
+                'lang': lang, 
+                'url': url, 
+                'status': code, 
+                'accessible': True,
+                'unique_content': is_unique,
+                'sample_hash': sample_hash
+            })
     return results
 
 # === Main ===

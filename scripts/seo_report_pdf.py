@@ -386,11 +386,19 @@ def validate_scores(site, scores):
         hreflang_score = scores.get('hreflang', 0)
         # Detect SPA fallback: multilang paths >= 3 but only 1-2 actual hreflang tags
         actual_hreflang = hl_count if hl_count > 0 else len(hl_langs)
-        if ml_count > actual_hreflang * 3 and hreflang_score >= 7:
+        real_ml = [m for m in ml if m.get('unique_content', True)]
+        real_ml_count = len(real_ml)
+        # If accessible path count >> unique content count >> hreflang tags, it's SPA duplicate
+        if real_ml_count == 0 and ml_count >= 5:
             corrections['hreflang'] = (
-                max(3, hreflang_score - 5),
-                f"⚠️ 21个语言路径返回相同HTML（SPA fallback），"
-                f"实际hreflang标签仅{actual_hreflang}个，不应得高分"
+                max(2, hreflang_score - 6),
+                f"⚠️ 全部{ml_count}个语言路径返回相同HTML（SPA fallback），无差异化内容"
+            )
+        elif ml_count > real_ml_count * 3 and hreflang_score >= 7:
+            corrections['hreflang'] = (
+                max(3, hreflang_score - 4),
+                f"⚠️ {ml_count}个语言路径中仅{real_ml_count}个有差异化内容（SPA fallback），"
+                f"实际hreflang标签仅{actual_hreflang}个"
             )
     
     # Rule 2: multilang count 0 but hreflang score high = impossible
@@ -629,21 +637,30 @@ def calc_scores(site):
         prod_lang_ok = sum(1 for pp in product_pages if pp.get('hreflang', {}).get('html_lang', '') == html_lang)
     lang_consistency = prod_lang_ok / n_prod if n_prod and html_lang else 0
     
-    # Base scoring
-    if html_lang and ml_count >= 5:
+    # Filter out SPA duplicate-content fallbacks (only count genuinely unique language paths)
+    real_ml = [m for m in ml if m.get('unique_content', True)]  # Default True for backward compat
+    real_ml_count = len(real_ml)
+    real_ml_langs = [m['lang'] for m in real_ml]
+    
+    # Base scoring (use real unique content count, not accessible path count)
+    if html_lang and real_ml_count >= 5:
         base = 9
-    elif html_lang and ml_count >= 3:
+    elif html_lang and real_ml_count >= 3:
         base = 8
-    elif html_lang and ml_count >= 1:
+    elif html_lang and real_ml_count >= 1:
         base = 6
-    elif not html_lang and ml_count >= 5:
+    elif not html_lang and real_ml_count >= 5:
         base = 5
-    elif not html_lang and ml_count >= 3:
+    elif not html_lang and real_ml_count >= 3:
         base = 4
-    elif not html_lang and ml_count >= 1:
+    elif not html_lang and real_ml_count >= 1:
         base = 2
     else:
         base = 0
+    
+    # Warning: report if accessible > unique (SPA duplicate content issue)
+    if ml_count > real_ml_count and ml_count >= 3:
+        base = max(3, base - 2)
     
     # Penalty: duplicate content across language paths (SPA fallback)
     if ml_count >= 5:
@@ -1205,7 +1222,7 @@ def generate(data, output_path, title=None):
         ['项目', '内容', '评估'],
         [
             ['HTML lang', hl.get('html_lang', '无'), '正常' if hl.get('html_lang') else '缺失'],
-            ['可访问语言路径', ', '.join(ml_langs[:10]) + ('...' if len(ml_langs) > 10 else ''), f'{len(ml_langs)}种'],
+            ['可访问语言路径', ', '.join(ml_langs[:10]) + ('...' if len(ml_langs) > 10 else ''), f'{len(ml_langs)}种(真实{len([m for m in ml if m.get("unique_content", True)])}种)'],
         ], ss, cw=[0.25, 0.50, 0.25]))
 
     # 2.5 Open Graph 与社交分享
