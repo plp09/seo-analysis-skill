@@ -498,6 +498,18 @@ def validate_scores(site, scores):
                 "⚠️ 所有子页面类型未识别，B2B信号仅基于首页，评分可能虚高"
             )
     
+    # Rule 13: Multilang content accessible but zero hreflang tags (discoverability failure)
+    # If language paths return 200 but no hreflang declared, search engines can't find them
+    _r13_ml_count = sum(1 for m in ml if m.get('unique_content', True))
+    _r13_html_lang = hl.get('html_lang', '')
+    if _r13_html_lang:
+        _r13_ml_count = max(1, _r13_ml_count)  # base lang always counts
+    if _r13_ml_count >= 3 and hl_count == 0 and scores.get('hreflang', 0) >= 7:
+        corrections['hreflang'] = (
+            max(3, min(scores['hreflang'], 4)),
+            f"⚠️ 有{_r13_ml_count}种语言内容但未声明hreflang标签，搜索引擎无法发现多语言页面"
+        )
+    
     return corrections
 
 
@@ -727,6 +739,14 @@ def calc_scores(site):
     # Penalty: inconsistent html_lang across pages
     if html_lang and n_prod and lang_consistency < 0.5:
         base -= 1
+    
+    # Critical: if multilang content exists but no hreflang tags declared,
+    # search engines can't discover the language variants — major SEO issue
+    _hl_tag_count = hl.get('count', 0)
+    if real_ml_count >= 3 and _hl_tag_count == 0:
+        base = max(2, min(base, 4))
+    elif real_ml_count >= 2 and _hl_tag_count == 0:
+        base = max(3, min(base, 5))
     
     s['hreflang'] = max(0, min(10, base))
     
