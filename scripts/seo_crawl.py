@@ -2064,6 +2064,14 @@ def main():
             # Aggregate B2B keywords from product pages
             product_pages = [sp for sp in sub_pages_data if sp.get('page_type') == 'product']
             category_pages = [sp for sp in sub_pages_data if sp.get('page_type') == 'category']
+            
+            # Always determine categories for keyword system (even if no products)
+            if user_categories:
+                categories_for_kw = user_categories
+                print(f'[CRAWL]   Using user-provided categories: {categories_for_kw}', file=sys.stderr)
+            else:
+                categories_for_kw = []
+            
             if product_pages:
                 print(f'[CRAWL]   Aggregating B2B keywords from {len(product_pages)} product pages...', file=sys.stderr)
                 b2b_summary = {
@@ -2117,29 +2125,27 @@ def main():
 
                 site_data['category_b2b_summary'] = b2b_summary
                 
-                # Determine categories for backend keyword system generation
-                # Priority: user-provided categories > auto-detected categories
-                if user_categories:
-                    categories_for_kw = user_categories
-                    print(f'[CRAWL]   Using user-provided categories: {categories_for_kw}', file=sys.stderr)
-                else:
+                # Fallback categories from auto-detection if no user_categories
+                if not categories_for_kw:
                     auto_cats = b2b_summary.get('top_categories', [])
-                    categories_for_kw = [auto_cats[0]] if auto_cats else ['Product']
-                    print(f'[CRAWL]   Using auto-detected categories: {categories_for_kw}', file=sys.stderr)
-                
-                # Generate backend keyword system for EACH category
-                backend_keyword_systems = {}
-                for cat in categories_for_kw:
-                    kw_system = generate_backend_keyword_system([cat], product_pages=product_pages)
-                    backend_keyword_systems[cat] = kw_system
-                    print(f'[CRAWL]   Backend keyword system for "{cat}": {len(kw_system["roots"])} roots, {len(kw_system["keywords"])} keywords, {len(kw_system["tags"])} tags, {sum(len(v) for v in kw_system["selling_points"].values())} selling points', file=sys.stderr)
-                
-                # Store all keyword systems (new format: dict keyed by category)
+                    categories_for_kw = [auto_cats[0]] if auto_cats else []
+                    if categories_for_kw:
+                        print(f'[CRAWL]   Using auto-detected categories: {categories_for_kw}', file=sys.stderr)
+            
+            # Generate backend keyword system for EACH category (even if no products)
+            backend_keyword_systems = {}
+            for cat in categories_for_kw:
+                kw_system = generate_backend_keyword_system([cat], product_pages=product_pages)
+                backend_keyword_systems[cat] = kw_system
+                print(f'[CRAWL]   Backend keyword system for "{cat}": {len(kw_system["roots"])} roots, {len(kw_system["keywords"])} keywords, {len(kw_system["tags"])} tags, {sum(len(v) for v in kw_system["selling_points"].values())} selling points', file=sys.stderr)
+            
+            # Always store user_categories (even if empty)
+            site_data['user_categories'] = user_categories
+            
+            # Store keyword systems if any were generated
+            if backend_keyword_systems:
                 site_data['backend_keyword_systems'] = backend_keyword_systems
-                # Backward compatibility: first category's system in singular field
                 site_data['backend_keyword_system'] = list(backend_keyword_systems.values())[0]
-                # Store user-provided categories for reference
-                site_data['user_categories'] = user_categories
 
         # Remove raw_html from final output (too large)
         if 'raw_html' in site_data:

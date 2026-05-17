@@ -366,6 +366,82 @@ def generate_paa_examples(product):
     return examples
 
 
+# === Score Validation ===
+def validate_scores(site, scores):
+    """Cross-check scores for internal consistency and logic errors.
+    Returns dict of {dimension: (adjusted_score, warning_message)}.
+    """
+    corrections = {}
+    sub_pages = site.get('sub_pages', [])
+    product_pages = [sp for sp in sub_pages if sp.get('page_type') == 'product']
+    n_prod = len(product_pages)
+    ml = site.get('multilang', [])
+    ml_count = len(ml)
+    hl = site.get('hreflang', {})
+    hl_count = hl.get('count', 0)
+    hl_langs = hl.get('languages', [])
+    
+    # Rule 1: hreflang high score but duplicate lang paths = inflated
+    if ml_count >= 3:
+        hreflang_score = scores.get('hreflang', 0)
+        # Detect SPA fallback: multilang paths >= 3 but only 1-2 actual hreflang tags
+        actual_hreflang = hl_count if hl_count > 0 else len(hl_langs)
+        if ml_count > actual_hreflang * 3 and hreflang_score >= 7:
+            corrections['hreflang'] = (
+                max(3, hreflang_score - 5),
+                f"⚠️ 21个语言路径返回相同HTML（SPA fallback），"
+                f"实际hreflang标签仅{actual_hreflang}个，不应得高分"
+            )
+    
+    # Rule 2: multilang count 0 but hreflang score high = impossible
+    if ml_count == 0 and scores.get('hreflang', 0) >= 7:
+        corrections['hreflang'] = (
+            max(3, scores['hreflang'] - 4),
+            "⚠️ 未检测到多语言路径但hreflang得高分，逻辑矛盾"
+        )
+    
+    # Rule 3: sitemap score 10 but no actual sitemap in crawl
+    sm = site.get('sitemap', {})
+    if sm.get('score') == 10 and not sm.get('found'):
+        corrections['sitemap'] = (
+            min(scores.get('sitemap', 10), 3),
+            "⚠️ Sitemap评分满分但实际未找到sitemap文件"
+        )
+    
+    # Rule 4: security high but not HTTPS
+    if not site.get('https') and scores.get('security', 0) >= 8:
+        corrections['security'] = (
+            max(4, scores['security'] - 4),
+            "⚠️ 非HTTPS但技术安全得高分"
+        )
+    
+    # Rule 5: no product pages but B2B score high
+    if n_prod == 0 and scores.get('b2b', 0) >= 7:
+        corrections['b2b'] = (
+            max(4, scores['b2b'] - 3),
+            "⚠️ 无产品页但B2B关键词得高分"
+        )
+    
+    # Rule 6: GEO score depends on homepage word_count, cross-check with actual word_count
+    wc = site.get('word_count', 0)
+    geo_score = scores.get('geo', 0)
+    if wc < 300 and geo_score >= 6:
+        corrections['geo'] = (
+            max(4, geo_score - 2),
+            f"⚠️ 首页仅{wc}词但GEO/AI内容得{geo_score}分，可能虚高"
+        )
+    
+    # Rule 7: PAA score 10 but no FAQ blocks on homepage
+    faq = site.get('faq_block_count', 0)
+    if faq == 0 and scores.get('paa', 0) >= 8:
+        corrections['paa'] = (
+            max(4, scores['paa'] - 3),
+            "⚠️ 首页无FAQ区块但PAA就绪得高分"
+        )
+    
+    return corrections
+
+
 def calc_scores(site):
     """Calculate scores based on homepage + product pages data.
     v3.0: Enhanced scoring with finer granularity, structure checks, and GEO expansion.
@@ -568,6 +644,12 @@ def calc_scores(site):
         base = 2
     else:
         base = 0
+    
+    # Penalty: duplicate content across language paths (SPA fallback)
+    if ml_count >= 5:
+        base = max(3, base - 4)
+    elif ml_count >= 3:
+        base = max(3, base - 2)
     
     # Penalty: inconsistent html_lang across pages
     if html_lang and n_prod and lang_consistency < 0.5:
@@ -836,7 +918,9 @@ DIMS = [
 ]
 
 
-def overall(scores):
+def overall(site, scores):
+    # Run validation and collect corrections
+    validation_log = validate_scores(site, scores)
     struct_dims = ['title','desc','h12','alt','hreflang','og','sitemap','social','security']
     sw, st = 0.0, 0.0
     for k, _, w in DIMS:
@@ -858,7 +942,33 @@ def overall(scores):
 
     # Weighted: structure 60% + content 40%
     t = structure_score * 6 + content_score * 4
-    return round(t / 10, 1)
+    final = round(t / 10, 1)
+    
+    # Apply score corrections from validation
+    if validation_log:
+        for dim, (adj_score, _) in validation_log.items():
+            if dim in scores:
+                scores[dim] = adj_score
+        # Recalculate structure/content/overall after corrections
+        struct_dims = ['title','desc','h12','alt','hreflang','og','sitemap','social','security']
+        sw, st = 0.0, 0.0
+        for k, _, w in DIMS:
+            if k in struct_dims:
+                st += scores.get(k, 0) * w
+                sw += w
+        structure_score = round(st / sw, 1) if sw else 0
+        cont_dims = ['geo', 'b2b', 'paa']
+        cw, ct = 0.0, 0.0
+        for k, _, w in DIMS:
+            if k in cont_dims:
+                ct += scores.get(k, 0) * w
+                cw += w
+        content_score = round(ct / cw, 1) if cw else 0
+        final = round(structure_score * 6 + content_score * 4, 1)
+        scores['structure'] = structure_score
+        scores['content'] = content_score
+    
+    return final
 
 
 def on_page(canvas, doc):
@@ -898,7 +1008,7 @@ def generate(data, output_path, title=None):
     date_str = datetime.now().strftime('%Y年%m月%d日')
     ss = create_styles()
     scores = calc_scores(site)
-    ov = overall(scores)
+    ov = overall(site, scores)
 
     doc = SimpleDocTemplate(output_path, pagesize=A4,
         leftMargin=MARGIN, rightMargin=MARGIN,
