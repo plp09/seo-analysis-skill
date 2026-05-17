@@ -792,95 +792,84 @@ def detect_paa_content(h):
 
 
 def analyze_b2b_keywords(h):
-    """Analyze page content for B2B buyer-oriented keyword coverage."""
+    """Analyze page content for B2B buyer-oriented keyword coverage.
+    Returns structured signals with readable keys (not regex patterns).
+    """
     text = extract_text(h).lower()
     words = re.findall(r'[\w\u4e00-\u9fff]+', text)
 
+    # --- Helper: count matches with readable key ---
+    def count_signal(pattern, key_name, txt=text):
+        matches = re.findall(pattern, txt)
+        return {key_name: len(matches)} if matches else {}
+
     # --- 1. Core product terms ---
-    # Detect product-related signals
-    product_signals = [
-        # Product naming patterns
-        r'\b(product|products|solution|solutions|equipment|machine|machinery|device|system|unit)\b',
-        r'\b(model|type|series|catalog|catalogue|range|portfolio)\b',
-        r'\b(manufacturer|supplier|vendor|producer|factory|maker)\b',
-        r'\b(wholesale|bulk|oem|odm|custom|customized|bespoke)\b',
-        r'\b(specification|specifications|spec|datasheet|data sheet)\b',
-    ]
+    product_signals = {
+        'product_terms': r'\b(product|products|solution|solutions|equipment|machine|machinery|device|system|unit)\b',
+        'model_terms': r'\b(model|type|series|catalog|catalogue|range|portfolio)\b',
+        'manufacturer_terms': r'\b(manufacturer|supplier|vendor|producer|factory|maker)\b',
+        'wholesale_terms': r'\b(wholesale|bulk|oem|odm|custom|customized|bespoke)\b',
+        'spec_terms': r'\b(specification|specifications|spec|datasheet|data sheet)\b',
+    }
     product_hits = {}
-    for pattern in product_signals:
-        matches = re.findall(pattern, text)
-        if matches:
-            product_hits[pattern.split('\\b')[1].split('(')[0]] = len(matches)
-    core_product_score = min(10, sum(product_hits.values()) * 2) if product_hits else 0
+    for key, pattern in product_signals.items():
+        product_hits.update(count_signal(pattern, key))
+    core_product_score = min(10, sum(product_hits.values()) // 2) if product_hits else 0
 
     # --- 2. Main parameters & specifications ---
-    spec_signals = [
-        # Numeric specs
-        r'\b\d+\s*(mm|cm|m|kg|g|lb|oz|kw|w|v|a|hz|mpa|psi|bar|l|ml|gal|ft|in|°c|°f|nm|um|db|rpm)\b',
-        r'\b(material|materials|stainless|steel|aluminum|aluminium|carbon|alloy|plastic|rubber|silicone|ceramic|glass|titanium|copper|brass)\b',
-        r'\b(certif|iso\s*\d+|ce\s*certif|rohs|fda|ul|sgs|tuv|gs|reach|astm|din|jis|ansi|iec)\b',
-        r'\b(capacity|power|voltage|current|frequency|temperature|pressure|flow\s*rates?|speed|torque|dimension|weight|size|thickness)\b',
-        r'\b(performance|efficiency|durability|reliability|precision|accuracy|tolerance|resolution)\b',
-        r'\b(grade|class|level|standard|compliance|approval|rating)\b',
-    ]
+    spec_signals = {
+        'numeric_specs': r'\b\d+\s*(mm|cm|m|kg|g|lb|oz|kw|w|v|a|hz|mpa|psi|bar|l|ml|gal|ft|in|°c|°f|nm|um|db|rpm)\b',
+        'material_terms': r'\b(material|materials|stainless|steel|aluminum|aluminium|carbon|alloy|plastic|rubber|silicone|ceramic|glass|titanium|copper|brass)\b',
+        'certification_terms': r'\b(certif|iso\s*\d+|ce\s*certif|rohs|fda|ul|sgs|tuv|gs|reach|astm|din|jis|ansi|iec)\b',
+        'performance_terms': r'\b(capacity|power|voltage|current|frequency|temperature|pressure|flow\s*rates?|speed|torque|dimension|weight|size|thickness)\b',
+        'quality_terms': r'\b(performance|efficiency|durability|reliability|precision|accuracy|tolerance|resolution)\b',
+        'grade_terms': r'\b(grade|class|level|standard|compliance|approval|rating)\b',
+    }
     spec_hits = {}
-    for pattern in spec_signals:
-        matches = re.findall(pattern, text)
-        if matches:
-            key = pattern.split('\\b')[1].split('(')[0][:30]
-            spec_hits[key] = len(matches)
-    spec_score = min(10, sum(spec_hits.values()) * 2) if spec_hits else 0
+    for key, pattern in spec_signals.items():
+        spec_hits.update(count_signal(pattern, key))
+    spec_score = min(10, sum(spec_hits.values()) // 2) if spec_hits else 0
 
     # --- 3. Application scenarios & problem-solving ---
-    app_signals = [
-        r'\b(application|apply|applied|use\s*case|use\s*cases?|scenario|scenarios)\b',
-        r'\b(industry|industries|sector|sectors|field|fields|market|markets)\b',
-        r'\b(solution|solutions|solve|solving|problem|challenge|issue|demand|requirement)\b',
-        r'\b(how\s+to|guide|tutorial|best\s+practice|tips?|advice|recommend)\b',
-        r'\b(faq|frequently\s+asked|question|answer|support|help|troubleshoot)\b',
-        r'\b(install|installation|setup|configure|maintain|maintenance|operate|operation)\b',
-        r'\b(benefit|benefits|advantage|advantages|feature|features|value\s*prop)\b',
-        r'\b(case\s*study|success\s*story|testimonial|review|feedback)\b',
-    ]
+    app_signals = {
+        'application_terms': r'\b(application|apply|applied|use\s*case|use\s*cases?|scenario|scenarios)\b',
+        'industry_terms': r'\b(industry|industries|sector|sectors|field|fields|market|markets)\b',
+        'solution_terms': r'\b(solution|solutions|solve|solving|problem|challenge|issue|demand|requirement)\b',
+        'guide_terms': r'\b(how\s+to|guide|tutorial|best\s+practice|tips?|advice|recommend)\b',
+        'faq_terms': r'\b(faq|frequently\s+asked|question|answer|support|help|troubleshoot)\b',
+        'install_terms': r'\b(install|installation|setup|configure|maintain|maintenance|operate|operation)\b',
+        'benefit_terms': r'\b(benefit|benefits|advantage|advantages|feature|features|value\s*prop)\b',
+        'case_study_terms': r'\b(case\s*study|success\s*story|testimonial|review|feedback)\b',
+    }
     app_hits = {}
-    for pattern in app_signals:
-        matches = re.findall(pattern, text)
-        if matches:
-            key = pattern.split('\\b')[1].split('(')[0][:30]
-            app_hits[key] = len(matches)
-    app_score = min(10, sum(app_hits.values()) * 2) if app_hits else 0
+    for key, pattern in app_signals.items():
+        app_hits.update(count_signal(pattern, key))
+    app_score = min(10, sum(app_hits.values()) // 2) if app_hits else 0
 
     # --- 4. Long-tail & precision keywords ---
-    # Check for buyer-intent long-tail patterns
-    longtail_signals = [
-        r'\b(for\s+(sale|rent|export|import|wholesale|distribut))\b',
-        r'\b(buy|buyer|buying|purchase|purchasing|procure|sourcing|source)\b',
-        r'\b(price|pricing|cost|quote|quotation|estimate|budget|competitive|affordable)\b',
-        r'\b(moq|minimum\s+order|lead\s+time|delivery|shipping|freight|logistics|incoterm|fob|cif|exw|ddp)\b',
-        r'\b(supplier|factory\s+direct|direct\s+manufacturer|certified|verified|qualified)\b',
-        r'\b(oem|odm|private\s*label|white\s*label|contract\s*manufactur|custom\s*manufactur)\b',
-        r'\b(warranty|guarantee|after-sales|spare\s*parts|technical\s*support|service)\b',
-        r'\b(sampl|prototype|trial|demo|testing|inspection|quality\s*control)\b',
-    ]
+    longtail_signals = {
+        'sale_terms': r'\b(for\s+(sale|rent|export|import|wholesale|distribut))\b',
+        'buy_terms': r'\b(buy|buyer|buying|purchase|purchasing|procure|sourcing|source)\b',
+        'price_terms': r'\b(price|pricing|cost|quote|quotation|estimate|budget|competitive|affordable)\b',
+        'trade_terms': r'\b(moq|minimum\s+order|lead\s+time|delivery|shipping|freight|logistics|incoterm|fob|cif|exw|ddp)\b',
+        'supplier_terms': r'\b(supplier|factory\s+direct|direct\s+manufacturer|certified|verified|qualified)\b',
+        'oem_terms': r'\b(oem|odm|private\s*label|white\s*label|contract\s*manufactur|custom\s*manufactur)\b',
+        'warranty_terms': r'\b(warranty|guarantee|after-sales|spare\s*parts|technical\s*support|service)\b',
+        'sample_terms': r'\b(sampl|prototype|trial|demo|testing|inspection|quality\s*control)\b',
+    }
     longtail_hits = {}
-    for pattern in longtail_signals:
-        matches = re.findall(pattern, text)
-        if matches:
-            key = pattern.split('\\b')[1].split('(')[0][:30]
-            longtail_hits[key] = len(matches)
-    longtail_score = min(10, sum(longtail_hits.values()) * 2) if longtail_hits else 0
+    for key, pattern in longtail_signals.items():
+        longtail_hits.update(count_signal(pattern, key))
+    longtail_score = min(10, sum(longtail_hits.values()) // 2) if longtail_hits else 0
 
     # --- Extract actual keyword phrases for reference ---
-    # Bigrams that suggest buyer intent
     bigrams = [f'{words[i]} {words[i+1]}' for i in range(len(words)-1)]
     buyer_bigrams = [bg for bg in bigrams if any(
         w in bg for w in ['wholesale', 'oem', 'odm', 'factory', 'supplier', 'manufacturer',
                           'price', 'quote', 'moq', 'certif', 'specif', 'quality', 'custom']
     )]
 
-    # Extract heading text for keyword reference
-    headings_text = re.sub(r'<[^>]+>', ' ', h)
-    headings_text = html_mod.unescape(headings_text)
+    # Extract heading text
     heading_phrases = re.findall(r'<h[1-6][^>]*>(.*?)</h[1-6]>', h, re.I | re.S)
     heading_phrases = [re.sub(r'<[^>]+>', '', hp).strip() for hp in heading_phrases if re.sub(r'<[^>]+>', '', hp).strip()]
 
@@ -888,22 +877,17 @@ def analyze_b2b_keywords(h):
     meta_kw = extract_meta(h, 'keywords')
     kw_text = meta_kw[0] if meta_kw else ''
 
-    # --- Extract top category/product words from headings and text ---
-    # Use H1 + H2 + H3 headings as primary category signals
+    # --- Extract top category/product words from headings ---
     heading_categories = []
     for hp in heading_phrases:
-        # Filter out HTML artifacts (comment fragments like --><!-- )
         if '-->' in hp or '<!--' in hp or '<' in hp:
             continue
-        # Clean and take first 2-3 meaningful words as category
         words_in_hp = [w for w in hp.split() if len(w) > 2 and w.lower() not in
                        ('the', 'and', 'for', 'with', 'our', 'are', 'you', 'can', 'all', 'new', 'home')]
         if words_in_hp:
-            # Take up to 3 words as a category phrase
             cat = ' '.join(words_in_hp[:3]).title()
             if len(cat) > 3:
                 heading_categories.append(cat)
-    # Deduplicate and take top 3
     seen_cats = set()
     top_categories = []
     for cat in heading_categories:
@@ -940,9 +924,8 @@ def analyze_b2b_keywords(h):
         'total_signals': sum(product_hits.values()) + sum(spec_hits.values()) + sum(app_hits.values()) + sum(longtail_hits.values()),
         'word_count': len(words),
         'top_categories': top_categories,
-        'recommended_keywords': {},  # Will be populated by report generator
+        'recommended_keywords': {},
     }
-
 
 def generate_backend_keyword_system(categories, product_pages=None):
     """Generate a backend keyword system for the primary product category.

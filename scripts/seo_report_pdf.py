@@ -423,13 +423,80 @@ def validate_scores(site, scores):
             f"⚠️ 首页仅{wc}词但GEO/AI内容得{geo_score}分，可能虚高"
         )
     
-    # Rule 7: PAA score 10 but no FAQ blocks on homepage
+    # Rule 7: PAA score high but no FAQ blocks on homepage
     faq = site.get('faq_block_count', 0)
     if faq == 0 and scores.get('paa', 0) >= 8:
         corrections['paa'] = (
             max(4, scores['paa'] - 3),
             "⚠️ 首页无FAQ区块但PAA就绪得高分"
         )
+    
+    # Rule 8: B2B signals have empty-string keys (data quality issue)
+    b2b_data = site.get('b2b_keywords', site.get('category_b2b_summary', {}))
+    for sub_dim in ['core_product', 'specifications', 'applications', 'longtail_buyer']:
+        sigs = b2b_data.get(sub_dim, {}).get('signals', {})
+        empty_keys = sum(1 for k in sigs if not k.strip())
+        if empty_keys > 0 and total_empty_sig_keys == -1:
+            pass  # Flag once below
+    
+    # Check if B2B signals are mostly empty-string keys (unreliable data)
+    total_sig_entries = 0
+    empty_sig_keys = 0
+    for sub_dim in ['core_product', 'specifications', 'applications', 'longtail_buyer']:
+        sigs = b2b_data.get(sub_dim, {}).get('signals', {})
+        for k, v in sigs.items():
+            total_sig_entries += 1
+            if not k.strip():
+                empty_sig_keys += 1
+    if total_sig_entries > 0 and empty_sig_keys / total_sig_entries > 0.5 and scores.get('b2b', 0) >= 7:
+        corrections['b2b'] = (
+            min(scores.get('b2b', 10), 5),
+            "⚠️ B2B信号数据质量差（信号名为空），评分可能虚高"
+        )
+    
+    # Rule 9: Alt coverage 100% but very few images (statistically unreliable)
+    imgs = site.get('images', {})
+    img_total = imgs.get('total', 0)
+    img_pct = imgs.get('coverage_pct', 0)
+    if img_total <= 3 and img_pct >= 90 and scores.get('alt', 0) >= 8:
+        corrections['alt'] = (
+            max(5, scores['alt'] - 3),
+            f"⚠️ 仅{img_total}张图片且Alt全覆盖，样本太小，评分可能虚高"
+        )
+    
+    # Rule 10: Sitemap has URLs but no lastmod (stale content risk)
+    sm = site.get('sitemap', {})
+    if sm.get('exists') and sm.get('url_count', 0) > 0:
+        with_lastmod = sm.get('with_lastmod', 0)
+        if with_lastmod == 0 and scores.get('sitemap', 0) >= 8:
+            corrections['sitemap'] = (
+                max(5, scores['sitemap'] - 2),
+                "⚠️ Sitemap无lastmod时间戳，搜索引擎无法判断内容新鲜度"
+            )
+    
+    # Rule 11: Social links with placeholder URLs (linkedin.com/in/your-company etc.)
+    sl = site.get('social_links', {})
+    platforms = sl.get('platforms', [])
+    placeholder_count = 0
+    for p in platforms:
+        url = p.get('url', '').lower() if isinstance(p, dict) else str(p).lower()
+        if any(x in url for x in ['your-company', 'yourcompany', 'example', 'placeholder', 'xxx']):
+            placeholder_count += 1
+    if placeholder_count > 0 and scores.get('social', 0) >= 6:
+        corrections['social'] = (
+            max(2, scores['social'] - 3),
+            f"⚠️ {placeholder_count}个社交链接为占位符URL"
+        )
+    
+    # Rule 12: All sub_pages have page_type=None (no product pages detected)
+    if sub_pages and all(sp.get('page_type') is None for sp in sub_pages) and n_prod == 0:
+        # This means the crawler couldn't identify product pages
+        # B2B score based on homepage-only signals is less reliable
+        if scores.get('b2b', 0) >= 8:
+            corrections['b2b'] = (
+                min(scores.get('b2b', 10), 6),
+                "⚠️ 所有子页面类型未识别，B2B信号仅基于首页，评分可能虚高"
+            )
     
     return corrections
 
@@ -645,15 +712,17 @@ def calc_scores(site):
     else:
         base = 0
     
-    # Warning: report if accessible > unique (SPA duplicate content issue)
-    if ml_count > real_ml_count and ml_count >= 3:
-        base = max(3, base - 2)
-    
     # Penalty: duplicate content across language paths (SPA fallback)
-    if ml_count >= 5:
-        base = max(3, base - 4)
-    elif ml_count >= 3:
+    # Combined penalty: more severe when many fake paths vs few real ones
+    if ml_count >= 5 and real_ml_count <= 1:
+        # Many fake paths, only 0-1 real → severe penalty
+        base = max(2, base - 4)
+    elif ml_count > real_ml_count * 3 and ml_count >= 3:
+        # Moderate duplication: accessible >> real unique
         base = max(3, base - 2)
+    elif ml_count > real_ml_count and ml_count >= 3:
+        # Mild duplication: some paths are duplicates
+        base = max(4, base - 1)
     
     # Penalty: inconsistent html_lang across pages
     if html_lang and n_prod and lang_consistency < 0.5:
@@ -1003,10 +1072,76 @@ def on_cover(canvas, doc):
     canvas.restoreState()
 
 
+def _check_data_completeness(site):
+    """Verify all required data fields exist before generating PDF.
+    Returns (checks_list, missing_list).
+    """
+    checks = []
+    
+    # Chapter 2.1: Basic metadata
+    t = site.get('title', {})
+    checks.append(('基础元数据', 'Title', 'OK' if t.get('text') else 'MISSING'))
+    d = site.get('meta_description', {})
+    checks.append(('基础元数据', 'Description', 'OK' if d.get('text') else 'MISSING'))
+    checks.append(('基础元数据', 'Canonical', 'OK' if site.get('canonical') else 'MISSING'))
+    hl = site.get('hreflang', {})
+    checks.append(('基础元数据', 'HTML Lang', 'OK' if hl.get('html_lang') else 'MISSING'))
+    
+    # Chapter 2.2: Heading structure
+    checks.append(('标题结构', 'H1 count', 'OK' if site.get('h1_count') is not None else 'MISSING'))
+    checks.append(('标题结构', 'H2 count', 'OK' if site.get('h2_count') is not None else 'MISSING'))
+    checks.append(('标题结构', 'Headings dict', 'OK' if site.get('headings') else 'MISSING'))
+    
+    # Chapter 2.3: Images
+    imgs = site.get('images', {})
+    checks.append(('图片优化', 'Images data', 'OK' if imgs.get('total') is not None else 'MISSING'))
+    checks.append(('图片优化', 'Coverage %', 'OK' if imgs.get('coverage_pct') is not None else 'MISSING'))
+    
+    # Chapter 2.4: Multilang
+    checks.append(('多语言', 'hreflang data', 'OK' if hl else 'MISSING'))
+    checks.append(('多语言', 'multilang list', 'OK' if site.get('multilang') is not None else 'MISSING'))
+    
+    # Chapter 2.5: OG
+    checks.append(('Open Graph', 'OG data', 'OK' if site.get('og') else 'MISSING'))
+    
+    # Chapter 2.6: Sitemap
+    checks.append(('Sitemap', 'Sitemap data', 'OK' if site.get('sitemap') else 'MISSING'))
+    
+    # Chapter 2.7: Security
+    checks.append(('技术安全', 'HTTPS status', 'OK' if site.get('https') is not None else 'MISSING'))
+    
+    # Chapter 3.1: GEO/AI
+    jld = site.get('jsonld', {})
+    checks.append(('GEO/AI', 'JSON-LD types', 'OK' if jld.get('types') is not None else 'MISSING'))
+    checks.append(('GEO/AI', 'Word count', 'OK' if site.get('word_count') is not None else 'MISSING'))
+    checks.append(('GEO/AI', 'FAQ count', 'OK' if site.get('faq_block_count') is not None else 'MISSING'))
+    
+    # Chapter 3.2: B2B
+    b2b = site.get('b2b_keywords', site.get('category_b2b_summary', {}))
+    checks.append(('B2B关键词', 'B2B data', 'OK' if b2b else 'MISSING'))
+    for sub in ['core_product', 'specifications', 'applications', 'longtail_buyer']:
+        checks.append(('B2B关键词', f'{sub} score', 'OK' if b2b.get(sub, {}).get('score') is not None else 'MISSING'))
+    
+    # Chapter 3.3: PAA
+    paa = site.get('paa_content', {})
+    checks.append(('PAA内容', 'PAA data', 'OK' if paa else 'OK(basic)'))
+    
+    missing = [c for c in checks if c[2] == 'MISSING']
+    return checks, missing
+
+
 def generate(data, output_path, title=None):
     sites = data.get('sites', {})
     domain = list(sites.keys())[0] if sites else 'Unknown'
     site = sites[domain]
+    
+    # Pre-check data completeness
+    checks, missing = _check_data_completeness(site)
+    if missing:
+        import sys
+        print(f"[数据完整性检查] {domain}: {len(missing)}项缺失", file=sys.stderr)
+        for ch, item, status in missing:
+            print(f"  - {ch}/{item}: {status}", file=sys.stderr)
     if not title:
         title = f'{domain} SEO 技术审计报告'
     date_str = datetime.now().strftime('%Y年%m月%d日')
