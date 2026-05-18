@@ -1988,6 +1988,13 @@ def main():
                     'howto_block_count': count_howto_blocks(sub_html),
                     'canonical': extract_canonical(sub_html),
                     'b2b_keywords': analyze_b2b_keywords(sub_html),
+                    'og': extract_og(sub_html),
+                    'hreflang': extract_hreflang(sub_html),
+                    'https': page_url.startswith('https://'),
+                    'generator': extract_generator(sub_html),
+                    'noindex': extract_noindex(sub_html),
+                    'social_links': {'has_social': False, 'detected_platforms': []},
+                    'page_type': 'about',
                 }
                 sub_pages_data.append(sub_data)
         site_data['sub_pages'] = sub_pages_data
@@ -2018,6 +2025,12 @@ def main():
                         'howto_block_count': count_howto_blocks(cat_html),
                         'canonical': extract_canonical(cat_html),
                         'b2b_keywords': analyze_b2b_keywords(cat_html),
+                        'og': extract_og(cat_html),
+                        'hreflang': extract_hreflang(cat_html),
+                        'https': cat_url.startswith('https://'),
+                        'generator': extract_generator(cat_html),
+                        'noindex': extract_noindex(cat_html),
+                        'social_links': {'has_social': False, 'detected_platforms': []},
                         'page_type': 'category',
                     }
                     sub_pages_data.append(cat_data)

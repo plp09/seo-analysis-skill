@@ -401,7 +401,7 @@ def validate_scores(site, scores):
         )
     
     # Rule 4: security high but not HTTPS
-    if not site.get('https') and scores.get('security', 0) >= 8:
+    if site.get('https') is False and scores.get('security', 0) >= 8:
         corrections['security'] = (
             max(4, scores['security'] - 4),
             "⚠️ 非HTTPS但技术安全得高分"
@@ -821,7 +821,10 @@ def calc_scores(site):
         sec = 9  # Start from 9
         
         # HTTPS check (critical)
-        if not page.get('https', True):
+        # Note: page['https'] may be None for older crawl data;
+        # treat None as True (inherit from site) to avoid false penalty
+        page_https = page.get('https')
+        if page_https is False:  # explicitly False = non-HTTPS
             sec -= 5
         
         # Generator leak (moderate)
@@ -1407,7 +1410,7 @@ def generate(data, output_path, title=None):
     el.append(make_table(
         ['检查项', '结果', '评估'],
         [
-            ['HTTPS 加密', '已启用' if site.get('https') else '未启用', '安全' if site.get('https') else '不安全'],
+            ['HTTPS 加密', '已启用' if site.get('https') is True else ('未确认' if site.get('https') is None else '未启用'), '安全' if site.get('https') is True else ('待验证' if site.get('https') is None else '不安全')],
             ['Generator 标签', site.get('generator') or '无泄露', '干净' if not site.get('generator') else '有泄露'],
             ['Robots.txt', '存在' if rb.get('exists') else '缺失', '正常' if rb.get('exists') else '缺失'],
             ['noindex 标记', '未检测到' if not site.get('noindex') else '已检测到', '正常' if not site.get('noindex') else '警告'],
