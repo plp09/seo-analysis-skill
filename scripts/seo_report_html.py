@@ -110,11 +110,24 @@ def generate_html(data, title="SEO Analysis Report"):
 
         # Sitemap
         sm = site.get('sitemap', {})
+        sm_format = sm.get('format', 'xml')
         if sm.get('exists'):
             uc = sm.get('url_count', 0)
-            if uc > 0 and sm.get('with_lastmod', 0) > 0: s['sitemap'] = 8
-            elif uc > 0: s['sitemap'] = 6
-            else: s['sitemap'] = 3
+            if sm_format == 'xml':
+                if uc > 0 and sm.get('with_lastmod', 0) > 0: s['sitemap'] = 8
+                elif uc > 0: s['sitemap'] = 6
+                else: s['sitemap'] = 3
+            elif sm_format == 'html':
+                # HTML sitemap: good for discovery but lacks lastmod/priority metadata
+                if uc > 50: s['sitemap'] = 7
+                elif uc > 10: s['sitemap'] = 6
+                elif uc > 0: s['sitemap'] = 5
+                else: s['sitemap'] = 3
+            elif sm_format == 'rss':
+                if uc > 0: s['sitemap'] = 6
+                else: s['sitemap'] = 3
+            else:
+                s['sitemap'] = 3
         else: s['sitemap'] = 0
 
         # Social (OG + Twitter)
@@ -280,6 +293,7 @@ def generate_html(data, title="SEO Analysis Report"):
 
         # Ch 7: Sitemap
         detail_sections += '<h3>7. Sitemap 质量</h3><table><tr><th style="width:30%">指标</th><th>数值</th></tr>'
+        detail_sections += f'<tr><td>Sitemap 格式</td><td>{sm.get("format", "xml").upper()}</td></tr>'
         detail_sections += f'<tr><td>URL</td><td>{escape(site.get("sitemap",{}).get("url","无"))}</td></tr>'
         detail_sections += f'<tr><td>URL 数量</td><td>{site.get("sitemap",{}).get("url_count","N/A")}</td></tr>'
         detail_sections += f'<tr><td>含 lastmod</td><td>{site.get("sitemap",{}).get("with_lastmod","N/A")}</td></tr>'

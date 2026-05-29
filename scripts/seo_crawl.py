@@ -534,20 +534,48 @@ def detect_platform(html):
     return detected[0] if detected else 'generic'
 
 def get_sitemap_urls(base_url, timeout=10):
-    """Get URLs from sitemap.xml as fallback for crawling."""
-    sitemap_urls = [
+    """Get URLs from sitemap in various formats (XML, HTML, RSS, etc.)."""
+    sitemap_candidates = [
+        # XML format (most common)
         f"{base_url.rstrip('/')}/sitemap.xml",
         f"{base_url.rstrip('/')}/sitemap_index.xml",
         f"{base_url.rstrip('/')}/sitemap.php",
+        # RSS/Atom format
+        f"{base_url.rstrip('/')}/sitemap.rss",
+        f"{base_url.rstrip('/')}/sitemap.atom",
+        # Compressed
+        f"{base_url.rstrip('/')}/sitemap.xml.gz",
+        # HTML format (common on B2B sites)
+        f"{base_url.rstrip('/')}/sitemap/",
+        f"{base_url.rstrip('/')}/sitemap.html",
+        # Other common patterns
+        f"{base_url.rstrip('/')}/sitemap_index.xml",
+        f"{base_url.rstrip('/')}/sitemap-posts.xml",
+        f"{base_url.rstrip('/')}/sitemap-pages.xml",
+        f"{base_url.rstrip('/')}/wp-sitemap.xml",  # WordPress
     ]
     
-    for sitemap_url in sitemap_urls:
-        xml_content, status = fetch(sitemap_url, timeout=timeout)
-        if xml_content and isinstance(status, int) and status == 200:
-            # Parse XML
-            urls = re.findall(r'<loc>([^<]+)</loc>', xml_content, re.I)
+    for sitemap_url in sitemap_candidates:
+        content, status = fetch(sitemap_url, timeout=timeout)
+        if content and isinstance(status, int) and status == 200:
+            # XML sitemap: parse <loc> tags
+            urls = re.findall(r'<loc>([^<]+)</loc>', content, re.I)
             if urls:
                 return urls
+            # HTML sitemap: extract all internal links
+            if '<html' in content.lower() or '<!doctype' in content.lower():
+                html_links = re.findall(r'href=["\']([^"\'\s>]+)["\']', content, re.I)
+                internal_links = []
+                base_parsed = urlparse(base_url)
+                for link in html_links:
+                    if link.startswith(('#', 'javascript', 'mailto:', 'tel:', 'data:')):
+                        continue
+                    full = urljoin(sitemap_url, link)
+                    lp = urlparse(full)
+                    if lp.netloc == base_parsed.netloc and lp.scheme in ('http', 'https'):
+                        internal_links.append(full)
+                if internal_links:
+                    return list(dict.fromkeys(internal_links))  # deduplicate preserving order
     return []
 
 def extract_product_links_smart(html, base_url, platform=None):
@@ -1958,20 +1986,80 @@ def analyze_page(url):
         'has_sitemap': bool(re.search(r'Sitemap:', robots_txt, re.I)) if robots_txt else False
     }
 
-    # Sitemap
+    # Sitemap — try multiple formats (XML, HTML, RSS, etc.)
     sitemap_url = None
+    sitemap_format = None  # 'xml', 'html', 'rss', 'unknown'
     if robots_txt and isinstance(robots_status, int):
         sm = re.findall(r'Sitemap:\s*(.+)', robots_txt, re.I)
         if sm:
             sitemap_url = sm[0].strip()
-    if not sitemap_url:
-        sitemap_url = f'{base}/sitemap.xml'
 
-    sm_headers, sm_status = fetch_header(sitemap_url)
-    sitemap_exists = isinstance(sm_status, int) and sm_status == 200
-    result['sitemap'] = {'url': sitemap_url, 'exists': sitemap_exists}
+    # Candidate sitemap URLs to probe (in priority order)
+    sitemap_candidates = []
+    if sitemap_url:
+        sitemap_candidates.append(sitemap_url)
+    base = url.rstrip('/')
+    sitemap_candidates.extend([
+        f'{base}/sitemap.xml',
+        f'{base}/sitemap_index.xml',
+        f'{base}/sitemap.php',
+        f'{base}/sitemap.rss',
+        f'{base}/sitemap.atom',
+        f'{base}/sitemap/',       # HTML sitemap (common on B2B sites)
+        f'{base}/sitemap.html',   # HTML sitemap
+        f'{base}/wp-sitemap.xml', # WordPress
+    ])
+
+    sitemap_exists = False
+    for sm_url in sitemap_candidates:
+        sm_content, sm_status = fetch(sm_url, timeout=8)
+        if sm_content and isinstance(sm_status, int) and sm_status == 200:
+            sitemap_url = sm_url
+            sitemap_exists = True
+            # Detect format
+            sm_lower = sm_content.lstrip()[:200].lower()
+            if sm_lower.startswith('<?xml') or '<urlset' in sm_lower or '<sitemapindex' in sm_lower:
+                sitemap_format = 'xml'
+                break
+            elif '<rss' in sm_lower or '<feed' in sm_lower:
+                sitemap_format = 'rss'
+                break
+            elif '<html' in sm_lower or '<!doctype' in sm_lower:
+                sitemap_format = 'html'
+                break
+            else:
+                sitemap_format = 'unknown'
+                break
+
+    result['sitemap'] = {'url': sitemap_url, 'exists': sitemap_exists, 'format': sitemap_format}
     if sitemap_exists:
-        result['sitemap'].update(parse_sitemap(sitemap_url))
+        if sitemap_format == 'xml':
+            result['sitemap'].update(parse_sitemap(sitemap_url))
+        elif sitemap_format == 'html':
+            # Extract links from HTML sitemap
+            html_links = re.findall(r'href=["\']([^"\'\s>]+)["\']', sm_content, re.I)
+            base_parsed = urlparse(base)
+            internal_urls = []
+            for link in html_links:
+                if link.startswith(('#', 'javascript', 'mailto:', 'tel:', 'data:')):
+                    continue
+                full = urljoin(sitemap_url, link)
+                lp = urlparse(full)
+                if lp.netloc == base_parsed.netloc and lp.scheme in ('http', 'https'):
+                    internal_urls.append(full)
+            internal_urls = list(dict.fromkeys(internal_urls))  # deduplicate
+            result['sitemap']['type'] = 'html_sitemap'
+            result['sitemap']['url_count'] = len(internal_urls)
+            result['sitemap']['urls'] = internal_urls[:50]
+        elif sitemap_format == 'rss':
+            urls = re.findall(r'<link>([^<]+)</link>', sm_content, re.I)
+            result['sitemap']['type'] = 'rss_feed'
+            result['sitemap']['url_count'] = len(urls)
+            result['sitemap']['urls'] = urls[:50]
+        else:
+            result['sitemap']['type'] = 'unknown'
+            result['sitemap']['url_count'] = 0
+            result['sitemap']['urls'] = []
 
     parsed = urlparse(base)
     result['https'] = parsed.scheme == 'https'

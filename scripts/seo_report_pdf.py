@@ -464,9 +464,10 @@ def validate_scores(site, scores):
             f"⚠️ 仅{img_total}张图片且Alt全覆盖，样本太小，评分可能虚高"
         )
     
-    # Rule 10: Sitemap has URLs but no lastmod (stale content risk)
+    # Rule 10: Sitemap has URLs but no lastmod (stale content risk) — XML only
     sm = site.get('sitemap', {})
-    if sm.get('exists') and sm.get('url_count', 0) > 0:
+    sm_format = sm.get('format', 'xml')
+    if sm.get('exists') and sm.get('url_count', 0) > 0 and sm_format == 'xml':
         with_lastmod = sm.get('with_lastmod', 0)
         if with_lastmod == 0 and scores.get('sitemap', 0) >= 8:
             corrections['sitemap'] = (
@@ -778,26 +779,44 @@ def calc_scores(site):
     s['og'] = round(home_og * 0.5 + prod_og_avg * 0.5, 1) if n_prod else home_og
     
     # === Sitemap ===
-    # Enhanced: check URL count ratio and lastmod freshness
+    # Enhanced: supports XML, HTML, RSS formats with format-aware scoring
     sm = site.get('sitemap', {})
+    sm_format = sm.get('format', 'xml')
     if not sm.get('exists'):
         s['sitemap'] = 0
     else:
         url_count = sm.get('url_count', 0)
         with_lastmod = sm.get('with_lastmod', 0)
         
-        if url_count > 0 and with_lastmod > 0:
-            base = 9
-        elif url_count > 0:
-            base = 7
+        if sm_format == 'xml':
+            if url_count > 0 and with_lastmod > 0:
+                base = 9
+            elif url_count > 0:
+                base = 7
+            else:
+                base = 4
+            # Bonus: sitemap has image/video extensions
+            if sm.get('image_entries', 0) > 0:
+                base += 1
+            if sm.get('sitemap_hreflang_count', 0) > 0:
+                base += 1
+        elif sm_format == 'html':
+            # HTML sitemap: good for crawlers but lacks structured metadata
+            if url_count > 50:
+                base = 7
+            elif url_count > 10:
+                base = 6
+            elif url_count > 0:
+                base = 5
+            else:
+                base = 3
+        elif sm_format == 'rss':
+            if url_count > 0:
+                base = 6
+            else:
+                base = 3
         else:
-            base = 4
-        
-        # Bonus: sitemap has image/video extensions
-        if sm.get('image_entries', 0) > 0:
-            base += 1
-        if sm.get('sitemap_hreflang_count', 0) > 0:
-            base += 1
+            base = 3
         
         s['sitemap'] = min(10, base)
     
@@ -1399,6 +1418,7 @@ def generate(data, output_path, title=None):
         ['项目', '内容', '评估'],
         [
             ['Sitemap 是否存在', '是' if sm.get('exists') else '否', '正常' if sm.get('exists') else '缺失'],
+            ['Sitemap 格式', sm.get('format', 'xml').upper(), '标准' if sm.get('format') == 'xml' else ('可用' if sm.get('format') in ('html','rss') else '未知')],
             ['收录 URL 数量', str(sm.get('url_count', 0)), '充足' if sm.get('url_count',0) > 100 else '偏少'],
             ['Robots.txt', '存在' if rb.get('exists') else '缺失', '正常' if rb.get('exists') else '缺失'],
             ['noindex 标记', '未检测到' if not site.get('noindex') else '已检测到', '正常' if not site.get('noindex') else '异常'],
