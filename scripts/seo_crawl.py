@@ -1,29 +1,63 @@
 #!/usr/bin/env python3
 """
-SEO Multi-Dimension Crawler (v2.2 — 13 dimensions)
+SEO Multi-Dimension Crawler (v2.3 — 13 dimensions)
 Usage:
   python3 seo_crawl.py https://target.com [https://target2.com] [--pages /about,/products,/blog]
 Outputs JSON to stdout with all 13 dimensions of SEO data.
+
+v2.3 changes:
+  - Improved fetch: gzip decompression, concurrent sub-page crawling
+  - Enhanced JS-render detection: better SPA/SSR heuristics
+  - Smart sub-page discovery: sitemap + navigation link scanning instead of hardcoded paths
+  - Sub-page type matching: aboutus.html, contactus.html, products.html, news.html etc.
 """
 
-import sys, re, json, urllib.request, urllib.error, ssl, html as html_mod
+import sys, re, json, urllib.request, urllib.error, ssl, html as html_mod, gzip, zlib
 from urllib.parse import urlparse, urljoin
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # === HTTP Helper ===
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
 CTX.verify_mode = ssl.CERT_NONE
 
+def _decompress_body(raw_bytes, encoding=None):
+    """Decompress gzip/deflate/br response body."""
+    if encoding == 'gzip':
+        try:
+            return gzip.decompress(raw_bytes)
+        except Exception:
+            pass
+    elif encoding == 'deflate':
+        try:
+            return zlib.decompress(raw_bytes)
+        except Exception:
+            try:
+                return zlib.decompress(raw_bytes, -zlib.MAX_WBITS)
+            except Exception:
+                pass
+    elif encoding == 'br':
+        try:
+            import brotli
+            return brotli.decompress(raw_bytes)
+        except ImportError:
+            pass
+    return raw_bytes
+
 def fetch(url, timeout=15):
     req = urllib.request.Request(url, headers={
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
+        'Accept-Encoding': 'gzip, deflate',
     })
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=CTX) as resp:
-            return resp.read().decode('utf-8', errors='replace'), resp.status
+            raw = resp.read()
+            encoding = resp.headers.get('Content-Encoding', '')
+            decompressed = _decompress_body(raw, encoding)
+            return decompressed.decode('utf-8', errors='replace'), resp.status
     except Exception as e:
         return '', str(e)
 
@@ -38,12 +72,29 @@ def fetch_header(url, timeout=10):
         return {}, str(e)
 
 def is_empty_page(html):
-    """Detect if static fetch returned an empty/JS-only page."""
+    """Detect if static fetch returned an empty/JS-only page.
+    v2.3: Improved heuristics — check body text length, not just title.
+    A page with a valid title but <30 visible words in <body> is likely JS-rendered.
+    """
     if not html or len(html) < 200:
         return True
     # Check for minimal meaningful content
     title = re.findall(r'<title[^>]*>([^<]+)</title>', html, re.I | re.S)
     title_text = title[0].strip() if title else ''
+
+    # Extract body content for word count check
+    body_match = re.search(r'<body[^>]*>(.*)</body>', html, re.I | re.S)
+    body_html = body_match.group(1) if body_match else html
+    body_text = re.sub(r'<script[^>]*>.*?</script>', '', body_html, flags=re.I | re.S)
+    body_text = re.sub(r'<style[^>]*>.*?</style>', '', body_text, flags=re.I | re.S)
+    body_text = re.sub(r'<[^>]+>', ' ', body_text)
+    body_text = html_mod.unescape(body_text)
+    body_words = re.findall(r'[\w\u4e00-\u9fff]+', body_text)
+
+    # If body has enough real text (>30 words), it's not empty even without a title
+    if len(body_words) > 30:
+        return False
+
     # If title is empty or just a placeholder, likely JS-rendered
     if not title_text or title_text.lower() in ('', 'loading...', 'untitled'):
         # Check for JS framework indicators
@@ -59,10 +110,25 @@ def is_empty_page(html):
         for pat in js_indicators:
             if re.search(pat, html, re.I):
                 return True
+
+    # Has title but very few body words — likely JS-rendered SPA with SSR title only
+    if title_text and len(body_words) <= 30:
+        js_indicators = [
+            r'<div[^>]+id=["\']root["\']',
+            r'<div[^>]+id=["\']app["\']',
+            r'__NEXT_DATA__',
+            r'__NUXT__',
+        ]
+        for pat in js_indicators:
+            if re.search(pat, html, re.I):
+                return True
+
     return False
 
 def fetch_rendered(url, timeout=30):
     """Fetch a page using browser rendering (via openclaw browser tool or playwright).
+    v2.3: Added wait_for_load_state('domcontentloaded') before networkidle for speed,
+    and added JavaScript scroll + delay to trigger lazy-loaded content.
     Falls back to static fetch if rendering is unavailable.
     Returns (html, status) like fetch().
     """
@@ -72,7 +138,20 @@ def fetch_rendered(url, timeout=30):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto(url, timeout=timeout * 1000, wait_until='networkidle')
+            page.goto(url, timeout=timeout * 1000, wait_until='domcontentloaded')
+            # Wait for network to settle (shorter than full networkidle)
+            try:
+                page.wait_for_load_state('networkidle', timeout=8000)
+            except Exception:
+                pass
+            # Scroll to trigger lazy-loaded content
+            try:
+                page.evaluate('window.scrollTo(0, document.body.scrollHeight / 2)')
+                page.wait_for_timeout(500)
+                page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                page.wait_for_timeout(500)
+            except Exception:
+                pass
             html = page.content()
             browser.close()
             return html, 200
@@ -90,11 +169,19 @@ from playwright.sync_api import sync_playwright
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True)
     pg = b.new_page()
-    pg.goto("{url}", timeout={timeout*1000}, wait_until="networkidle")
+    pg.goto("{url}", timeout={timeout*1000}, wait_until="domcontentloaded")
+    try:
+        pg.wait_for_load_state("networkidle", timeout=8000)
+    except Exception:
+        pass
+    pg.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+    pg.wait_for_timeout(500)
+    pg.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    pg.wait_for_timeout(500)
     print(pg.content())
     b.close()
 '''],
-            capture_output=True, text=True, timeout=timeout + 10
+            capture_output=True, text=True, timeout=timeout + 15
         )
         if result.returncode == 0 and result.stdout:
             return result.stdout, 200
@@ -1938,7 +2025,7 @@ def main():
         sys.exit(1)
 
     urls = []
-    extra_pages = ['/about/', '/about-us/', '/aboutus.html', '/products/', '/services/', '/blog/']
+    extra_pages = []  # Will be auto-discovered
     user_categories = []
     i = 1
     while i < len(sys.argv):
@@ -1967,36 +2054,237 @@ def main():
         print(f'[CRAWL] Analyzing {url}...', file=sys.stderr)
         site_data = analyze_page(url)
 
-        # Crawl sub-pages
+        # === Smart Sub-page Discovery (v2.3) ===
+        # Instead of hardcoded paths, discover real sub-pages from:
+        # 1. User-specified --pages (highest priority)
+        # 2. Navigation links in homepage HTML
+        # 3. Sitemap URLs
+        # 4. Fallback to common path patterns
+
+        SUBPAGE_TYPES = {
+            'about': {
+                'keywords': ['about', 'company', 'who-we-are', 'who we are', 'our-company', 'our company', 'about-us', 'about us'],
+                'paths': ['/about/', '/about-us/', '/aboutus.html', '/about.html', '/company/', '/company.html', '/who-we-are/', '/our-company/'],
+            },
+            'products': {
+                'keywords': ['product', 'catalogue', 'catalog'],
+                'paths': ['/products/', '/products.html', '/product/', '/product.html', '/catalogue/', '/catalog/', '/catalog.html', '/shop/', '/shop.html'],
+            },
+            'blog': {
+                'keywords': ['blog', 'news', 'article', 'journal', 'insight', 'update'],
+                'paths': ['/blog/', '/blog.html', '/news/', '/news.html', '/articles/', '/insights/', '/updates/'],
+            },
+            'contact': {
+                'keywords': ['contact', 'inquiry', 'enquiry', 'get-in-touch', 'reach-us'],
+                'paths': ['/contact/', '/contactus.html', '/contact.html', '/contact-us/', '/inquiry/', '/enquiry/', '/get-in-touch/'],
+            },
+            'services': {
+                'keywords': ['service', 'solution', 'capability', 'oem', 'custom'],
+                'paths': ['/services/', '/services.html', '/service/', '/solutions/', '/solution.html', '/oem/', '/custom/'],
+            },
+        }
+
+        def _discover_subpages(base_url, homepage_html, sitemap_urls_list, user_pages):
+            """Discover real sub-page URLs by type, using navigation + sitemap + fallback patterns.
+            Returns dict: {type: url} with one URL per type (the first that responds 200).
+            """
+            discovered = {}  # type -> url
+            base = base_url.rstrip('/')
+
+            # If user explicitly specified pages, use those directly
+            if user_pages:
+                for page_path in user_pages:
+                    url = f'{base}{page_path}' if page_path.startswith('/') else page_path
+                    # Try to classify the URL by type
+                    url_lower = url.lower()
+                    matched_type = None
+                    for ptype, pdef in SUBPAGE_TYPES.items():
+                        if any(kw in url_lower for kw in pdef['keywords']):
+                            matched_type = ptype
+                            break
+                    if not matched_type:
+                        matched_type = 'other'
+                    discovered[matched_type] = url
+                return discovered
+
+            # Step 1: Scan navigation links from homepage HTML
+            nav_hrefs = set()
+            nav_patterns = [
+                r'<nav[^>]*>(.*?)</nav>',
+                r'<header[^>]*>(.*?)</header>',
+                r'<div[^>]+class=["\'][^"\']*(?:menu|nav|navigation|header)[^"\']*["\'][^>]*>(.*?)</div>',
+                r'<ul[^>]+class=["\'][^"\']*(?:menu|nav)[^"\']*["\'][^>]*>(.*?)</ul>',
+            ]
+            for pat in nav_patterns:
+                for nav_content in re.findall(pat, homepage_html, re.I | re.S):
+                    for href in re.findall(r'href=["\']([^"\'\s>]+)["\']', nav_content, re.I):
+                        if href and not href.startswith(('#', 'javascript', 'mailto:', 'tel:')):
+                            nav_hrefs.add(href)
+
+            # Also scan ALL links from the page (many sites use non-semantic nav)
+            # This catches links in <div class="container">, <footer>, etc.
+            all_page_hrefs = set()
+            for href in re.findall(r'href=["\']([^"\'\s>]+)["\']', homepage_html, re.I):
+                if href and not href.startswith(('#', 'javascript:', 'mailto:', 'tel:', 'data:')):
+                    all_page_hrefs.add(href)
+
+            # Merge: nav_hrefs get higher priority, all_page_hrefs as supplement
+            page_hrefs = list(nav_hrefs) + [h for h in all_page_hrefs if h not in nav_hrefs]
+
+            # Step 2: Build candidate URLs per type
+            for ptype, pdef in SUBPAGE_TYPES.items():
+                candidates = []
+
+                # 2a. From page links (navigation + full page scan, highest confidence)
+                for href in page_hrefs:
+                    href_lower = href.lower()
+                    full_url = urljoin(base_url, href)
+                    parsed = urlparse(full_url)
+                    # Must be same domain
+                    if parsed.netloc != urlparse(base_url).netloc:
+                        continue
+                    # Must match type keywords
+                    if any(kw in href_lower for kw in pdef['keywords']):
+                        # Skip if it looks like a product detail page or article page
+                        path_parts = [p for p in parsed.path.strip('/').split('/') if p]
+                        if len(path_parts) > 2:
+                            continue
+                        # Skip article/product detail URLs (contain numeric IDs or very long slugs)
+                        last_part = path_parts[-1] if path_parts else ''
+                        if re.search(r'-\d{4,}', last_part):
+                            continue  # e.g., /news/article-228327.html
+                        if len(last_part) > 60:
+                            continue  # Very long slug = product/article detail
+                        candidates.append(full_url)
+
+                # 2b. From sitemap URLs
+                if sitemap_urls_list:
+                    for sm_url in sitemap_urls_list:
+                        sm_lower = sm_url.lower()
+                        if any(kw in sm_lower for kw in pdef['keywords']):
+                            parsed = urlparse(sm_url)
+                            path_parts = [p for p in parsed.path.strip('/').split('/') if p]
+                            if len(path_parts) <= 2:
+                                candidates.append(sm_url)
+
+                # 2c. Fallback: try standard path patterns
+                for path in pdef['paths']:
+                    candidates.append(f'{base}{path}')
+
+                # Deduplicate while preserving order
+                seen = set()
+                unique_candidates = []
+                for c in candidates:
+                    if c not in seen:
+                        seen.add(c)
+                        unique_candidates.append(c)
+                discovered[ptype] = unique_candidates
+
+            return discovered
+
+        # Get sitemap URLs for sub-page discovery
+        sitemap_urls_list = []
+        sm_data = site_data.get('sitemap', {})
+        if sm_data.get('exists') and sm_data.get('urls'):
+            sitemap_urls_list = sm_data['urls']
+
+        homepage_html = site_data.get('raw_html', '')
+        discovered_pages = _discover_subpages(url, homepage_html, sitemap_urls_list, extra_pages)
+
+        # Crawl sub-pages with concurrent fetching
         sub_pages_data = []
-        for page in extra_pages[:5]:
-            page_url = f"{url.rstrip('/')}{page}"
-            print(f'[CRAWL]   Sub-page: {page_url}', file=sys.stderr)
-            sub_html, sub_status = fetch(page_url)
-            if sub_html and isinstance(sub_status, int) and sub_status == 200:
-                sub_data = {
-                    'url': page_url,
-                    'title': {'text': extract_title(sub_html), 'length': len(extract_title(sub_html))},
-                    'meta_description': {'text': extract_meta(sub_html, 'description')[0] if extract_meta(sub_html, 'description') else '', 'length': len(extract_meta(sub_html, 'description')[0]) if extract_meta(sub_html, 'description') else 0},
-                    'headings': extract_headings(sub_html),
-                    'h1_count': len(extract_headings(sub_html).get('H1', [])),
-                    'h2_count': len(extract_headings(sub_html).get('H2', [])),
-                    'word_count': word_count(sub_html),
-                    'images': extract_images(sub_html),
-                    'jsonld': extract_jsonld(sub_html),
-                    'faq_block_count': count_faq_blocks(sub_html),
-                    'howto_block_count': count_howto_blocks(sub_html),
-                    'canonical': extract_canonical(sub_html),
-                    'b2b_keywords': analyze_b2b_keywords(sub_html),
-                    'og': extract_og(sub_html),
-                    'hreflang': extract_hreflang(sub_html),
-                    'https': page_url.startswith('https://'),
-                    'generator': extract_generator(sub_html),
-                    'noindex': extract_noindex(sub_html),
-                    'social_links': {'has_social': False, 'detected_platforms': []},
-                    'page_type': 'about',
-                }
-                sub_pages_data.append(sub_data)
+
+        # Try to create a shared browser instance for JS rendering (much faster than per-page)
+        shared_browser = None
+        shared_playwright = None
+        try:
+            from playwright.sync_api import sync_playwright
+            shared_playwright = sync_playwright().start()
+            shared_browser = shared_playwright.chromium.launch(headless=True)
+        except Exception:
+            shared_browser = None
+            shared_playwright = None
+
+        def _fetch_with_render(url, timeout=10):
+            """Fetch URL with JS rendering fallback using shared browser."""
+            page_html, page_status = fetch(url, timeout=timeout)
+            if page_html and isinstance(page_status, int) and page_status == 200:
+                if is_empty_page(page_html) and shared_browser:
+                    try:
+                        pg = shared_browser.new_page()
+                        pg.goto(url, timeout=30000, wait_until='domcontentloaded')
+                        try:
+                            pg.wait_for_load_state('networkidle', timeout=8000)
+                        except Exception:
+                            pass
+                        pg.evaluate('window.scrollTo(0, document.body.scrollHeight / 2)')
+                        pg.wait_for_timeout(500)
+                        pg.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                        pg.wait_for_timeout(500)
+                        page_html = pg.content()
+                        pg.close()
+                    except Exception:
+                        pass
+                return page_html, page_status
+            # Static fetch failed, try render only
+            elif shared_browser:
+                try:
+                    pg = shared_browser.new_page()
+                    pg.goto(url, timeout=30000, wait_until='domcontentloaded')
+                    try:
+                        pg.wait_for_load_state('networkidle', timeout=8000)
+                    except Exception:
+                        pass
+                    pg.evaluate('window.scrollTo(0, document.body.scrollHeight / 2)')
+                    pg.wait_for_timeout(500)
+                    pg.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                    pg.wait_for_timeout(500)
+                    page_html = pg.content()
+                    pg.close()
+                    return page_html, 200
+                except Exception:
+                    pass
+            return page_html, page_status
+
+        def _crawl_subpage(ptype, candidates):
+            """Try candidate URLs for a sub-page type, return first that responds 200."""
+            if isinstance(candidates, str):
+                candidates = [candidates]
+            for page_url in candidates:
+                page_html, page_status = _fetch_with_render(page_url)
+                if page_html and isinstance(page_status, int) and page_status == 200:
+                    return page_url, page_html, ptype
+            return None, None, ptype
+
+        # Sequential sub-page crawling (Playwright browser is not thread-safe)
+        for ptype, candidates in discovered_pages.items():
+            page_url, sub_html, ptype = _crawl_subpage(ptype, candidates)
+            if not sub_html:
+                continue
+            print(f'[CRAWL]   Sub-page ({ptype}): {page_url}', file=sys.stderr)
+            sub_data = {
+                'url': page_url,
+                'title': {'text': extract_title(sub_html), 'length': len(extract_title(sub_html))},
+                'meta_description': {'text': extract_meta(sub_html, 'description')[0] if extract_meta(sub_html, 'description') else '', 'length': len(extract_meta(sub_html, 'description')[0]) if extract_meta(sub_html, 'description') else 0},
+                'headings': extract_headings(sub_html),
+                'h1_count': len(extract_headings(sub_html).get('H1', [])),
+                'h2_count': len(extract_headings(sub_html).get('H2', [])),
+                'word_count': word_count(sub_html),
+                'images': extract_images(sub_html),
+                'jsonld': extract_jsonld(sub_html),
+                'faq_block_count': count_faq_blocks(sub_html),
+                'howto_block_count': count_howto_blocks(sub_html),
+                'canonical': extract_canonical(sub_html),
+                'b2b_keywords': analyze_b2b_keywords(sub_html),
+                'og': extract_og(sub_html),
+                'hreflang': extract_hreflang(sub_html),
+                'https': page_url.startswith('https://'),
+                'generator': extract_generator(sub_html),
+                'noindex': extract_noindex(sub_html),
+                'social_links': extract_social_links(sub_html),
+                'page_type': ptype,
+            }
+            sub_pages_data.append(sub_data)
         site_data['sub_pages'] = sub_pages_data
 
         # Deep crawl: Extract category links from homepage
@@ -2011,6 +2299,10 @@ def main():
                 print(f'[CRAWL]   Category: {cat_url}', file=sys.stderr)
                 cat_html, cat_status = fetch(cat_url)
                 if cat_html and isinstance(cat_status, int) and cat_status == 200:
+                    if is_empty_page(cat_html):
+                        rendered, r_status = fetch_rendered(cat_url)
+                        if rendered and isinstance(r_status, int) and r_status == 200:
+                            cat_html = rendered
                     cat_data = {
                         'url': cat_url,
                         'title': {'text': extract_title(cat_html), 'length': len(extract_title(cat_html))},
@@ -2052,36 +2344,37 @@ def main():
                 product_source = homepage_html
                 product_base = url
 
-            # Crawl product pages (up to 20 for statistical coverage)
+            # Crawl product pages (up to 20 for statistical coverage) — sequential with shared browser
             if product_links:
                 for prod_url in product_links[:20]:
+                    prod_html, prod_status = _fetch_with_render(prod_url)
+                    if not (prod_html and isinstance(prod_status, int) and prod_status == 200):
+                        continue
                     print(f'[CRAWL]   Product: {prod_url}', file=sys.stderr)
-                    prod_html, prod_status = fetch(prod_url)
-                    if prod_html and isinstance(prod_status, int) and prod_status == 200:
-                        prod_data = {
-                            'url': prod_url,
-                            'title': {'text': extract_title(prod_html), 'length': len(extract_title(prod_html))},
-                            'meta_description': {'text': extract_meta(prod_html, 'description')[0] if extract_meta(prod_html, 'description') else '', 'length': len(extract_meta(prod_html, 'description')[0]) if extract_meta(prod_html, 'description') else 0},
-                            'headings': extract_headings(prod_html),
-                            'h1_count': len(extract_headings(prod_html).get('H1', [])),
-                            'h2_count': len(extract_headings(prod_html).get('H2', [])),
-                            'word_count': word_count(prod_html),
-                            'images': extract_images(prod_html),
-                            'jsonld': extract_jsonld(prod_html),
-                            'faq_block_count': count_faq_blocks(prod_html),
-                            'howto_block_count': count_howto_blocks(prod_html),
-                            'canonical': extract_canonical(prod_html),
-                            'b2b_keywords': analyze_b2b_keywords(prod_html),
-                            'paa_content': detect_paa_content(prod_html),
-                            'og': extract_og(prod_html),
-                            'hreflang': extract_hreflang(prod_html),
-                            'https': prod_url.startswith('https://'),
-                            'generator': extract_generator(prod_html),
-                            'noindex': extract_noindex(prod_html),
-                            'social_links': {'has_social': False, 'detected_platforms': []},  # Will aggregate later
-                            'page_type': 'product',
-                        }
-                        sub_pages_data.append(prod_data)
+                    prod_data = {
+                        'url': prod_url,
+                        'title': {'text': extract_title(prod_html), 'length': len(extract_title(prod_html))},
+                        'meta_description': {'text': extract_meta(prod_html, 'description')[0] if extract_meta(prod_html, 'description') else '', 'length': len(extract_meta(prod_html, 'description')[0]) if extract_meta(prod_html, 'description') else 0},
+                        'headings': extract_headings(prod_html),
+                        'h1_count': len(extract_headings(prod_html).get('H1', [])),
+                        'h2_count': len(extract_headings(prod_html).get('H2', [])),
+                        'word_count': word_count(prod_html),
+                        'images': extract_images(prod_html),
+                        'jsonld': extract_jsonld(prod_html),
+                        'faq_block_count': count_faq_blocks(prod_html),
+                        'howto_block_count': count_howto_blocks(prod_html),
+                        'canonical': extract_canonical(prod_html),
+                        'b2b_keywords': analyze_b2b_keywords(prod_html),
+                        'paa_content': detect_paa_content(prod_html),
+                        'og': extract_og(prod_html),
+                        'hreflang': extract_hreflang(prod_html),
+                        'https': prod_url.startswith('https://'),
+                        'generator': extract_generator(prod_html),
+                        'noindex': extract_noindex(prod_html),
+                        'social_links': {'has_social': False, 'detected_platforms': []},
+                        'page_type': 'product',
+                    }
+                    sub_pages_data.append(prod_data)
             else:
                 print(f'[CRAWL]   No product links found.', file=sys.stderr)
 
@@ -2174,6 +2467,18 @@ def main():
         # Remove raw_html from final output (too large)
         if 'raw_html' in site_data:
             del site_data['raw_html']
+
+        # Close shared browser
+        if shared_browser:
+            try:
+                shared_browser.close()
+            except Exception:
+                pass
+        if shared_playwright:
+            try:
+                shared_playwright.stop()
+            except Exception:
+                pass
 
         site_data['sub_pages'] = sub_pages_data
 
